@@ -10,7 +10,9 @@
 #include "baseline.hpp"
 #include <evmone/evmone.h>
 #include <cassert>
+#if not defined(ANTELOPE)
 #include <iostream>
+#endif
 
 namespace evmone
 {
@@ -53,13 +55,17 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
     }
     else if (name == "trace")
     {
+        #if not defined(ANTELOPE)
         vm.add_tracer(create_instruction_tracer(std::cerr));
         return EVMC_SET_OPTION_SUCCESS;
+        #endif
     }
     else if (name == "histogram")
     {
+        #if not defined(ANTELOPE)
         vm.add_tracer(create_histogram_tracer(std::cerr));
         return EVMC_SET_OPTION_SUCCESS;
+        #endif
     }
     return EVMC_SET_OPTION_INVALID_NAME;
 }
