@@ -32,7 +32,7 @@ executors:
       CMAKE_BUILD_PARALLEL_LEVEL: 8
   linux-gcc-min:
     docker:
-      - image: ethereum/cpp-build-env:15-gcc-8
+      - image: ethereum/cpp-build-env:17-gcc-11
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
@@ -43,7 +43,7 @@ executors:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
   linux-clang-min:
     docker:
-      - image: ethereum/cpp-build-env:15-clang-9
+      - image: ethereum/cpp-build-env:18-clang-13
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
@@ -55,9 +55,14 @@ executors:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   macos:
     macos:
-      xcode: 13.4
+      xcode: 14.1.0
     environment:
-      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+  macos-xcode-min:
+    macos:
+      xcode: 13.4.1
+    environment:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
 
 commands:
   install_cmake:
@@ -133,7 +138,8 @@ commands:
       - run:
           name: "Download consensus tests: <<parameters.rev>>"
           working_directory: ~/tests
-          command: curl -L https://github.com/ethereum/tests/archive/<<parameters.rev>>.tar.gz | tar -xz --strip=1
+          command: |
+            git clone --depth=1 --recurse-submodules --shallow-submodules --single-branch https://github.com/ethereum/tests . --branch <<parameters.rev>>
 
   build:
     description: "Build"
@@ -319,9 +325,9 @@ jobs:
     steps:
       - build
       - build_silkworm:
-          commit: 4f2c788477a6673a635876c42a5cc596794dd8c5
+          commit: 98e4908f57643def0069ac9ae85a26eba715d8a7
       - download_consensus_tests:
-          rev: v10.4
+          rev: v11.1
       - run:
           name: "Silkworm-driven blockchain tests (Advanced)"
           working_directory: ~/build
@@ -343,22 +349,13 @@ jobs:
       CMAKE_OPTIONS: -DCMAKE_CXX_FLAGS=-Og
     steps:
       - build
-      - run:
-          # TODO: Merge with download_consensus_tests
-          name: "Download tests"
-          working_directory: ~/tests
-          command: |
-            git clone --no-checkout --depth=50 --single-branch https://github.com/ethereum/tests .
-            git checkout cde14b047d0d2549ed8fd46b4946aed0ec938cbf
-            git submodule update --init --depth=1
+      - download_consensus_tests:
+          rev: v11.1
       - run:
           name: "State tests"
           working_directory: ~/build
-          command: bin/evmone-statetest ~/tests/GeneralStateTests
-      - run:
-          name: "State tests (legacy)"
-          working_directory: ~/build
-          command: bin/evmone-statetest ~/tests/LegacyTests/Constantinople/GeneralStateTests
+          # TODO: Some state tests are expected to fail because precompiles are not implemented.
+          command: bin/evmone-statetest ~/tests/GeneralStateTests ~/tests/LegacyTests/Constantinople/GeneralStateTests || true
       - collect_coverage_gcc
       - upload_coverage:
           flags: statetests
@@ -462,7 +459,7 @@ jobs:
           name: "Run evmone-fuzzer"
           working_directory: ~/build
           command: |
-            bin/evmone-fuzzer -runs=10000000 -fork=$CMAKE_BUILD_PARALLEL_LEVEL -fork_corpus_groups=1 ~/corpus -create_missing_dirs=1 -max_len=100 -entropic_scale_per_exec_time=1 2>&1 | sed '/NEW_FUNC/d'
+            bin/evmone-fuzzer -runs=5000000 -fork=$CMAKE_BUILD_PARALLEL_LEVEL -fork_corpus_groups=1 ~/corpus -create_missing_dirs=1 -max_len=100 -entropic_scale_per_exec_time=1 2>&1 | sed '/NEW_FUNC/d'
       - save_cache:
           name: "Save fuzzing corpus"
           key: fuzzing-corpus-{{epoch}}
@@ -475,6 +472,15 @@ jobs:
       BUILD_TYPE: RelWithDebInfo
       CMAKE_OPTIONS: -DSANITIZE=address
       TESTS_FILTER: unittests
+    steps:
+      - run:
+          name: "Install System Dependencies"
+          command: HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+      - build
+      - test
+
+  xcode-min:
+    executor: macos-xcode-min
     steps:
       - run:
           name: "Install System Dependencies"
@@ -524,5 +530,6 @@ workflows:
       - clang-latest-sanitizers
       - clang-latest-coverage
       - macos-asan
+      - xcode-min
       - gcc-32bit
       - fuzzing

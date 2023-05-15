@@ -6,6 +6,7 @@
 #include <numeric>
 
 using namespace evmc::literals;
+using namespace evmone;
 using namespace intx;
 using evmone::test::evm;
 
@@ -94,8 +95,8 @@ TEST_P(evm, dup_stack_underflow)
 {
     for (int i = 0; i < 16; ++i)
     {
-        const auto op = evmc_opcode(OP_DUP1 + i);
-        execute((i * push(0)) + op);
+        const auto op = static_cast<Opcode>(OP_DUP1 + i);
+        execute(i * push(0) + op);
         EXPECT_STATUS(EVMC_STACK_UNDERFLOW);
     }
 }
@@ -623,12 +624,10 @@ TEST_P(evm, undefined_instructions)
 {
     for (auto i = 0; i <= EVMC_MAX_REVISION; ++i)
     {
-        auto r = evmc_revision(i);
-        auto names = evmc_get_instruction_names_table(r);
-
+        const auto r = evmc_revision(i);
         for (uint8_t opcode = 0; opcode <= 0xfe; ++opcode)
         {
-            if (names[opcode] != nullptr)
+            if (evmone::instr::gas_costs[r][opcode] != evmone::instr::undefined)
                 continue;
 
             auto res = vm.execute(host, r, {}, &opcode, sizeof(opcode));
@@ -642,7 +641,7 @@ TEST_P(evm, undefined_instruction_analysis_overflow)
 {
     rev = EVMC_PETERSBURG;
 
-    auto undefined_opcode = evmc_opcode(0x0c);
+    auto undefined_opcode = static_cast<Opcode>(0x0c);
     auto code = bytecode{undefined_opcode};
 
     execute(code);

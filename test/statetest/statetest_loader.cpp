@@ -50,8 +50,7 @@ template <>
 intx::uint256 from_json<intx::uint256>(const json::json& j)
 {
     const auto s = j.get<std::string>();
-    static constexpr std::string_view bigint_marker{"0x:bigint "};
-    if (std::string_view{s}.substr(0, bigint_marker.size()) == bigint_marker)
+    if (s.starts_with("0x:bigint "))
         return std::numeric_limits<intx::uint256>::max();  // Fake it
     return intx::from_string<intx::uint256>(s);
 }
@@ -168,24 +167,27 @@ static void from_json(const json::json& j, StateTransitionTest& o)
 
     for (const auto& [j_addr, j_acc] : j_t.at("pre").items())
     {
-        const auto addr = from_json<address>(j_addr);
-        auto& acc = o.pre_state.create(addr);
-        acc.balance = from_json<intx::uint256>(j_acc.at("balance"));
-        acc.nonce = from_json<uint64_t>(j_acc.at("nonce"));
-        acc.code = from_json<bytes>(j_acc.at("code"));
+        auto& acc = o.pre_state.insert(from_json<address>(j_addr),
+            {.nonce = from_json<uint64_t>(j_acc.at("nonce")),
+                .balance = from_json<intx::uint256>(j_acc.at("balance")),
+                .code = from_json<bytes>(j_acc.at("code"))});
 
         for (const auto& [j_key, j_value] : j_acc.at("storage").items())
         {
-            auto& slot = acc.storage[from_json<bytes32>(j_key)];
             const auto value = from_json<bytes32>(j_value);
-            slot.original = value;
-            slot.current = value;
+            acc.storage.insert({from_json<bytes32>(j_key), {.current = value, .original = value}});
         }
     }
 
     o.multi_tx = j_t.at("transaction").get<TestMultiTransaction>();
 
     o.block = from_json<state::BlockInfo>(j_t.at("env"));
+
+    if (const auto& info = j_t.at("_info"); info.contains("labels"))
+    {
+        for (const auto& [j_id, j_label] : info.at("labels").items())
+            o.input_labels.emplace(from_json<uint64_t>(j_id), j_label);
+    }
 
     for (const auto& [rev_name, expectations] : j_t.at("post").items())
     {

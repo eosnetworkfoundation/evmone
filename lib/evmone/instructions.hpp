@@ -684,7 +684,7 @@ inline code_iterator jump_impl(ExecutionState& state, const uint256& dst) noexce
         return nullptr;
     }
 
-    return state.code.data() + static_cast<size_t>(dst);
+    return &state.analysis.baseline->executable_code[static_cast<size_t>(dst)];
 }
 
 /// JUMP instruction implementation using baseline::CodeAnalysis.
@@ -703,7 +703,7 @@ inline code_iterator jumpi(StackTop stack, ExecutionState& state, code_iterator 
 
 inline code_iterator pc(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
 {
-    stack.push(static_cast<uint64_t>(pos - state.code.data()));
+    stack.push(static_cast<uint64_t>(pos - state.analysis.baseline->executable_code.data()));
     return pos + 1;
 }
 
@@ -802,7 +802,22 @@ template <int N>
 inline void swap(StackTop stack) noexcept
 {
     static_assert(N >= 1 && N <= 16);
-    std::swap(stack.top(), stack[N]);
+
+    // The simple std::swap(stack.top(), stack[N]) is not used to workaround
+    // clang missed optimization: https://github.com/llvm/llvm-project/issues/59116
+    // TODO(clang): Check if #59116 bug fix has been released.
+
+    auto& a = stack[N];
+    auto& t = stack.top();
+    auto t0 = t[0];
+    auto t1 = t[1];
+    auto t2 = t[2];
+    auto t3 = t[3];
+    t = a;
+    a[0] = t0;
+    a[1] = t1;
+    a[2] = t2;
+    a[3] = t3;
 }
 
 template <size_t NumTopics>
@@ -836,14 +851,14 @@ inline evmc_status_code log(StackTop stack, ExecutionState& state) noexcept
 }
 
 
-template <evmc_opcode Op>
+template <Opcode Op>
 evmc_status_code call_impl(StackTop stack, ExecutionState& state) noexcept;
 inline constexpr auto call = call_impl<OP_CALL>;
 inline constexpr auto callcode = call_impl<OP_CALLCODE>;
 inline constexpr auto delegatecall = call_impl<OP_DELEGATECALL>;
 inline constexpr auto staticcall = call_impl<OP_STATICCALL>;
 
-template <evmc_opcode Op>
+template <Opcode Op>
 evmc_status_code create_impl(StackTop stack, ExecutionState& state) noexcept;
 inline constexpr auto create = create_impl<OP_CREATE>;
 inline constexpr auto create2 = create_impl<OP_CREATE2>;
@@ -907,7 +922,7 @@ inline StopToken selfdestruct(StackTop stack, ExecutionState& state) noexcept
 /// implementing the instruction identified by the opcode.
 ///     instr::impl<OP_DUP1>(/*...*/);
 /// The unspecialized template is invalid and should never to used.
-template <evmc_opcode Op>
+template <Opcode Op>
 inline constexpr auto impl = nullptr;
 
 #undef ON_OPCODE_IDENTIFIER

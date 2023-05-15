@@ -6,6 +6,7 @@
 #include <evmc/evmc.hpp>
 #include <evmc/mocked_host.hpp>
 #include <evmone/evmone.h>
+#include <evmone/instructions_traits.hpp>
 #include <evmone/tracing.hpp>
 #include <evmone/vm.hpp>
 #include <gmock/gmock.h>
@@ -27,14 +28,15 @@ protected:
         vm{*static_cast<evmone::VM*>(m_baseline_vm.get_raw_pointer())}
     {}
 
-    std::string trace(bytes_view code, int32_t depth = 0, uint32_t flags = 0)
+    std::string trace(
+        bytes_view code, int32_t depth = 0, uint32_t flags = 0, evmc_revision rev = EVMC_BERLIN)
     {
         evmc::MockedHost host;
         evmc_message msg{};
-        msg.flags = flags;
         msg.depth = depth;
+        msg.flags = flags;
         msg.gas = 1000000;
-        m_baseline_vm.execute(host, EVMC_BERLIN, msg, code.data(), code.size());
+        m_baseline_vm.execute(host, rev, msg, code.data(), code.size());
         auto result = trace_stream.str();
         trace_stream.str({});
         return result;
@@ -44,28 +46,49 @@ protected:
     {
         std::string m_name;
         std::ostringstream& m_trace;
-        const uint8_t* m_code = nullptr;
+        bytes_view m_code;
 
         void on_execution_start(
             evmc_revision /*rev*/, const evmc_message& /*msg*/, bytes_view code) noexcept override
         {
-            m_code = code.data();
+            m_code = code;
         }
 
-        void on_execution_end(const evmc_result& /*result*/) noexcept override { m_code = nullptr; }
+        void on_execution_end(const evmc_result& /*result*/) noexcept override { m_code = {}; }
 
         void on_instruction_start(uint32_t pc, const intx::uint256* /*stack_top*/,
             int /*stack_height*/, const evmone::ExecutionState& /*state*/) noexcept override
         {
             const auto opcode = m_code[pc];
-            m_trace << m_name << pc << ":"
-                    << evmc_get_instruction_names_table(EVMC_MAX_REVISION)[opcode] << " ";
+            m_trace << m_name << pc << ":" << evmone::instr::traits[opcode].name << " ";
         }
 
     public:
         explicit OpcodeTracer(tracing& parent, std::string name) noexcept
           : m_name{std::move(name)}, m_trace{parent.trace_stream}
         {}
+    };
+
+    class Inspector final : public evmone::Tracer
+    {
+        bytes m_last_code;
+
+        void on_execution_start(
+            evmc_revision /*rev*/, const evmc_message& /*msg*/, bytes_view code) noexcept override
+        {
+            m_last_code = code;
+        }
+
+        void on_execution_end(const evmc_result& /*result*/) noexcept override {}
+
+        void on_instruction_start(uint32_t /*pc*/, const intx::uint256* /*stack_top*/,
+            int /*stack_height*/, const evmone::ExecutionState& /*state*/) noexcept override
+        {}
+
+    public:
+        explicit Inspector() noexcept = default;
+
+        [[nodiscard]] const bytes& get_last_code() const noexcept { return m_last_code; }
     };
 };
 
@@ -253,5 +276,33 @@ TEST_F(tracing, trace_undefined_instruction)
 {"pc":0,"op":91,"opName":"JUMPDEST","gas":1000000,"stack":[],"memorySize":0}
 {"pc":1,"op":239,"opName":"0xef","gas":999999,"stack":[],"memorySize":0}
 {"error":"undefined instruction","gas":0,"gasUsed":1000000,"output":""}
+)");
+}
+
+TEST_F(tracing, trace_code_containing_zero)
+{
+    auto tracer_ptr = std::make_unique<Inspector>();
+    const auto& tracer = *tracer_ptr;
+    vm.add_tracer(std::move(tracer_ptr));
+
+    const auto code = bytecode{} + "602a6000556101c960015560068060166000396000f3600035600055";
+
+    trace(code);
+
+    EXPECT_EQ(tracer.get_last_code().size(), code.size());
+}
+
+TEST_F(tracing, trace_eof)
+{
+    vm.add_tracer(evmone::create_instruction_tracer(trace_stream));
+
+    trace_stream << '\n';
+    EXPECT_EQ(trace(eof1_bytecode(add(2, 3) + OP_STOP), 0, 0, EVMC_SHANGHAI), R"(
+{"depth":0,"rev":"Shanghai","static":false}
+{"pc":0,"op":96,"opName":"PUSH1","gas":1000000,"stack":[],"memorySize":0}
+{"pc":2,"op":96,"opName":"PUSH1","gas":999997,"stack":["0x3"],"memorySize":0}
+{"pc":4,"op":1,"opName":"ADD","gas":999994,"stack":["0x3","0x2"],"memorySize":0}
+{"pc":5,"op":0,"opName":"STOP","gas":999991,"stack":["0x5"],"memorySize":0}
+{"error":null,"gas":999991,"gasUsed":9,"output":""}
 )");
 }
