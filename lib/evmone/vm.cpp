@@ -84,7 +84,7 @@ inline constexpr VM::VM() noexcept
   : evmc_vm{
         EVMC_ABI_VERSION,
         "evmone",
-        PROJECT_VERSION,
+        "eos-evm",
         evmone::destroy,
         evmone::baseline::execute,
         evmone::get_capabilities,
