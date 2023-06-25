@@ -12,9 +12,10 @@ namespace evmone
 {
 namespace
 {
-std::string get_name(const char* const* names, uint8_t opcode)
+std::string get_name(uint8_t opcode)
 {
-    const auto name = names[opcode];
+    // TODO: Create constexpr tables of names (maybe even per revision).
+    const auto name = instr::traits[opcode].name;
     return (name != nullptr) ? name : "0x" + evmc::hex(opcode);
 }
 
@@ -25,25 +26,22 @@ class HistogramTracer : public Tracer
     {
         const int32_t depth;
         const uint8_t* const code;
-        const char* const* const opcode_names;
         uint32_t counts[256]{};
 
-        Context(int32_t _depth, const uint8_t* _code, const char* const* _opcode_names) noexcept
-          : depth{_depth}, code{_code}, opcode_names{_opcode_names}
-        {}
+        Context(int32_t _depth, const uint8_t* _code) noexcept : depth{_depth}, code{_code} {}
     };
 
     std::stack<Context> m_contexts;
     std::ostream& m_out;
 
     void on_execution_start(
-        evmc_revision rev, const evmc_message& msg, bytes_view code) noexcept override
+        evmc_revision /*rev*/, const evmc_message& msg, bytes_view code) noexcept override
     {
-        m_contexts.emplace(msg.depth, code.data(), evmc_get_instruction_names_table(rev));
+        m_contexts.emplace(msg.depth, code.data());
     }
 
     void on_instruction_start(uint32_t pc, const intx::uint256* /*stack_top*/, int /*stack_height*/,
-        const ExecutionState& /*state*/) noexcept override
+        int64_t /*gas*/, const ExecutionState& /*state*/) noexcept override
     {
         auto& ctx = m_contexts.top();
         ++ctx.counts[ctx.code[pc]];
@@ -52,13 +50,12 @@ class HistogramTracer : public Tracer
     void on_execution_end(const evmc_result& /*result*/) noexcept override
     {
         const auto& ctx = m_contexts.top();
-        const auto names = ctx.opcode_names;
 
         m_out << "--- # HISTOGRAM depth=" << ctx.depth << "\nopcode,count\n";
         for (size_t i = 0; i < std::size(ctx.counts); ++i)
         {
             if (ctx.counts[i] != 0)
-                m_out << get_name(names, static_cast<uint8_t>(i)) << ',' << ctx.counts[i] << '\n';
+                m_out << get_name(static_cast<uint8_t>(i)) << ',' << ctx.counts[i] << '\n';
         }
 
         m_contexts.pop();
@@ -80,7 +77,6 @@ class InstructionTracer : public Tracer
     };
 
     std::stack<Context> m_contexts;
-    const char* const* m_opcode_names = nullptr;
     std::ostream& m_out;  ///< Output stream.
 
     void output_stack(const intx::uint256* stack_top, int stack_height)
@@ -100,8 +96,6 @@ class InstructionTracer : public Tracer
     void on_execution_start(
         evmc_revision rev, const evmc_message& msg, bytes_view code) noexcept override
     {
-        if (m_contexts.empty())
-            m_opcode_names = evmc_get_instruction_names_table(rev);
         m_contexts.emplace(code.data(), msg.gas);
 
         m_out << "{";
@@ -112,21 +106,21 @@ class InstructionTracer : public Tracer
     }
 
     void on_instruction_start(uint32_t pc, const intx::uint256* stack_top, int stack_height,
-        const ExecutionState& state) noexcept override
+        int64_t gas, const ExecutionState& state) noexcept override
     {
         const auto& ctx = m_contexts.top();
 
         const auto opcode = ctx.code[pc];
         m_out << "{";
-        m_out << R"("pc":)" << pc;
-        m_out << R"(,"op":)" << int{opcode};
-        m_out << R"(,"opName":")" << get_name(m_opcode_names, opcode) << '"';
-        m_out << R"(,"gas":)" << state.gas_left;
+        m_out << R"("pc":)" << std::dec << pc;
+        m_out << R"(,"op":)" << std::dec << int{opcode};
+        m_out << R"(,"opName":")" << get_name(opcode) << '"';
+        m_out << R"(,"gas":0x)" << std::hex << gas;
         output_stack(stack_top, stack_height);
 
         // Full memory can be dumped as evmc::hex({state.memory.data(), state.memory.size()}),
         // but this should not be done by default. Adding --tracing=+memory option would be nice.
-        m_out << R"(,"memorySize":)" << state.memory.size();
+        m_out << R"(,"memorySize":)" << std::dec << state.memory.size();
 
         m_out << "}\n";
     }
@@ -141,14 +135,12 @@ class InstructionTracer : public Tracer
             m_out << "null";
         else
             m_out << '"' << result.status_code << '"';
-        m_out << R"(,"gas":)" << result.gas_left;
-        m_out << R"(,"gasUsed":)" << (ctx.start_gas - result.gas_left);
+        m_out << R"(,"gas":)" << std::hex << "0x" << result.gas_left;
+        m_out << R"(,"gasUsed":)" << std::hex << "0x" << (ctx.start_gas - result.gas_left);
         m_out << R"(,"output":")" << evmc::hex({result.output_data, result.output_size}) << '"';
         m_out << "}\n";
 
         m_contexts.pop();
-        if (m_contexts.empty())
-            m_opcode_names = nullptr;
     }
 
 public:

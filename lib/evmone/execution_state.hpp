@@ -16,7 +16,7 @@ struct AdvancedCodeAnalysis;
 }
 namespace baseline
 {
-struct CodeAnalysis;
+class CodeAnalysis;
 }
 
 using uint256 = intx::uint256;
@@ -92,12 +92,10 @@ public:
     void grow(size_t new_size) noexcept
     {
         // Restriction for future changes. EVM always has memory size as multiple of 32 bytes.
-        assert(new_size % 32 == 0);
+        INTX_REQUIRE(new_size % 32 == 0);
 
         // Allow only growing memory. Include hint for optimizing compiler.
-        assert(new_size > m_size);
-        if (new_size <= m_size)
-            INTX_UNREACHABLE();  // TODO: NOLINT(misc-static-assert)
+        INTX_REQUIRE(new_size > m_size);
 
         if (new_size > m_capacity)
         {
@@ -125,7 +123,6 @@ public:
 class ExecutionState
 {
 public:
-    int64_t gas_left = 0;
     int64_t gas_refund = 0;
     Memory memory;
     const evmc_message* msg = nullptr;
@@ -133,11 +130,6 @@ public:
     evmc_revision rev = {};
     bytes return_data;
 
-    /// Reference to original EVM code section.
-    /// For legacy code this is a reference to entire original code.
-    /// For EOF-formatted code this is a reference to code section only.
-    /// TODO: Code should be accessed via code analysis only and this should be removed.
-    bytes_view code;
     /// Reference to original EVM code container.
     /// For legacy code this is a reference to entire original code.
     /// For EOF-formatted code this is a reference to entire container.
@@ -159,6 +151,8 @@ public:
         const advanced::AdvancedCodeAnalysis* advanced;
     } analysis{};
 
+    std::vector<const uint8_t*> call_stack;
+
     /// Stack space allocation.
     ///
     /// This is the last field to make other fields' offsets of reasonable values.
@@ -169,12 +163,7 @@ public:
     ExecutionState(const evmc_message& message, evmc_revision revision,
         const evmc_host_interface& host_interface, evmc_host_context* host_ctx,
         bytes_view _code) noexcept
-      : gas_left{message.gas},
-        msg{&message},
-        host{host_interface, host_ctx},
-        rev{revision},
-        code{_code},
-        original_code{_code}
+      : msg{&message}, host{host_interface, host_ctx}, rev{revision}, original_code{_code}
     {}
 
     /// Resets the contents of the ExecutionState so that it could be reused.
@@ -182,14 +171,12 @@ public:
         const evmc_host_interface& host_interface, evmc_host_context* host_ctx,
         bytes_view _code) noexcept
     {
-        gas_left = message.gas;
         gas_refund = 0;
         memory.clear();
         msg = &message;
         host = {host_interface, host_ctx};
         rev = revision;
         return_data.clear();
-        code = _code;
         original_code = _code;
         status = EVMC_SUCCESS;
         output_offset = 0;

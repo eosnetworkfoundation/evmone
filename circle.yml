@@ -1,49 +1,51 @@
 version: 2.1
+orbs:
+  win: circleci/windows@5.0
 
 executors:
   lint:
     docker:
-      - image: ethereum/cpp-build-env:18-lint
+      - image: ethereum/cpp-build-env:19-lint
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-gcc-latest:
     docker:
-      - image: ethereum/cpp-build-env:18-gcc-12
+      - image: ethereum/cpp-build-env:19-gcc-12
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
   linux-gcc-multilib:
     docker:
-      - image: ethereum/cpp-build-env:18-gcc-12-multilib
+      - image: ethereum/cpp-build-env:19-gcc-12-multilib
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   blockchain-tests:
     docker:
-      - image: ethereum/cpp-build-env:17-gcc-11
+      - image: ethereum/cpp-build-env:19-gcc-12
     resource_class: xlarge
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 8
   linux-clang-xlarge:
     docker:
-      - image: ethereum/cpp-build-env:18-clang-14
+      - image: ethereum/cpp-build-env:19-clang-15
     resource_class: xlarge
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 8
   linux-gcc-min:
     docker:
-      - image: ethereum/cpp-build-env:15-gcc-8
+      - image: ethereum/cpp-build-env:17-gcc-11
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-clang-latest:
     docker:
-      - image: ethereum/cpp-build-env:18-clang-14
+      - image: ethereum/cpp-build-env:19-clang-15
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
   linux-clang-min:
     docker:
-      - image: ethereum/cpp-build-env:15-clang-9
+      - image: ethereum/cpp-build-env:18-clang-13
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
@@ -54,10 +56,17 @@ executors:
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   macos:
+    resource_class: macos.x86.medium.gen2
     macos:
-      xcode: 13.4
+      xcode: 14.3.0
     environment:
-      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+  macos-xcode-min:
+    resource_class: macos.x86.medium.gen2
+    macos:
+      xcode: 13.4.1
+    environment:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
 
 commands:
   install_cmake:
@@ -70,6 +79,12 @@ commands:
           working_directory: /usr/local
           command: |
             curl -L https://github.com/Kitware/CMake/releases/download/v<<parameters.version>>/cmake-<<parameters.version>>-linux-x86_64.tar.gz | sudo tar -xz --strip=1
+
+  checkout_submodules:
+    steps:
+      - run:
+          name: "Update submodules"
+          command: git submodule update --init --recursive
 
   build_silkworm:
     parameters:
@@ -85,7 +100,7 @@ commands:
           command: mkdir -p ~/silkworm
       - restore_cache:
           name: "Restore Silkworm cache (<<parameters.branch>>-<<parameters.commit>>)"
-          key: &silkworm-cache-key silkworm-<<parameters.branch>>-<<parameters.commit>>
+          key: &silkworm-cache-key silkworm-v2-<<parameters.branch>>-<<parameters.commit>>
       - run:
           name: "Check Silkworm cache"
           command: |
@@ -95,10 +110,9 @@ commands:
               echo 'export SILKWORM_BUILD=true' >> $BASH_ENV
             fi
       - run:
-          name: "Install GMP-dev"
+          name: "Install build dependencies"
           command: |
-            [ "$SILKWORM_BUILD" = true ] || exit 0
-            sudo apt-get -q update && sudo apt-get -qy install --no-install-recommends libgmp-dev
+            sudo apt-get -q update && sudo apt-get -qy install --no-install-recommends binutils m4 texinfo
       - run:
           name: "Checkout Silkworm"
           working_directory: ~/silkworm/src
@@ -106,7 +120,7 @@ commands:
             [ "$SILKWORM_BUILD" = true ] || exit 0
             git clone --no-checkout --single-branch https://github.com/torquem-ch/silkworm.git . --branch <<parameters.branch>>
             git checkout <<parameters.commit>>
-            git submodule update --init --recursive --depth=1 --progress
+            git submodule update --init --recursive --progress
       - run:
           name: "Configure Silkworm"
           working_directory: ~/silkworm
@@ -125,23 +139,29 @@ commands:
           paths:
             - ~/silkworm/consensus
 
-  download_consensus_tests:
+  download_execution_tests:
     parameters:
       rev:
         type: string
+        default: develop
+      commit:
+        type: string
+        default: ""
     steps:
       - run:
-          name: "Download consensus tests: <<parameters.rev>>"
+          name: "Download execution tests: <<parameters.rev>> <<parameters.commit>>"
           working_directory: ~/tests
-          command: curl -L https://github.com/ethereum/tests/archive/<<parameters.rev>>.tar.gz | tar -xz --strip=1
+          command: |
+            git clone --no-checkout --depth=250 --single-branch https://github.com/ethereum/tests . --branch <<parameters.rev>>
+            <<#parameters.rev>>git checkout <<parameters.rev>><</parameters.rev>>
+            <<#parameters.commit>>git checkout <<parameters.commit>><</parameters.commit>>
+            git submodule update --init --recursive --depth=1 --progress
 
   build:
     description: "Build"
     steps:
       - checkout
-      - run:
-          name: "Update submodules"
-          command: git submodule update --init --recursive
+      - checkout_submodules
       - run:
           name: "Environment"
           command: |
@@ -187,12 +207,13 @@ commands:
   test:
     description: "Test"
     steps:
-    - run:
-        name: "Test"
-        working_directory: ~/build
-        command: ctest -R ${TESTS_FILTER:-'.*'} --schedule-random --output-on-failure --parallel $CMAKE_BUILD_PARALLEL_LEVEL --output-junit ~/test_results/evmone.xml
-    - store_test_results:
-        path: ~/test_results
+      - run:
+          name: "Test"
+          shell: bash
+          working_directory: ~/build
+          command: ctest -R ${TESTS_FILTER:-'.*'} --schedule-random --output-on-failure --parallel $CMAKE_BUILD_PARALLEL_LEVEL --output-junit ~/test_results/evmone.xml
+      - store_test_results:
+          path: ~/test_results
 
   collect_coverage_gcc:
     description: "Collect coverage data (GCC)"
@@ -216,27 +237,37 @@ commands:
         type: string
     steps:
       - run:
-          name: "Upgrade codecov"
-          command: sudo pip3 install --upgrade --quiet --no-cache-dir codecov
+          name: "Install codecov"
+          command: |
+            # TODO: This should go to cpp-build-env image
+            gpg --no-default-keyring --keyring trustedkeys.gpg --keyserver keyserver.ubuntu.com --recv-key ED779869
+            
+            export CODECOV_VERSION=v0.4.1
+            curl -Os https://uploader.codecov.io/$CODECOV_VERSION/linux/codecov
+            curl -Os https://uploader.codecov.io/$CODECOV_VERSION/linux/codecov.SHA256SUM
+            curl -Os https://uploader.codecov.io/$CODECOV_VERSION/linux/codecov.SHA256SUM.sig
+  
+            gpgv codecov.SHA256SUM.sig codecov.SHA256SUM
+            shasum -c codecov.SHA256SUM
+            
+            chmod +x codecov
+            sudo mv codecov /usr/local/bin
+
       - run:
           name: "Upload to Codecov"
           command: |
             # Convert to relative paths
             sed -i 's|$(pwd)/||' ~/build/coverage.lcov
-            counter=1
-            until codecov --flags <<parameters.flags>> --required --file ~/build/coverage.lcov -X gcov || [ $counter = 5 ]; do
-              counter=$((counter+1))
-              sleep 1
-              echo "Try #$counter..."
-            done
+            codecov --flags <<parameters.flags>> --required --file ~/build/coverage.lcov -X gcov
 
   package:
     description: "Make package"
     steps:
       - run:
           name: "Build Package"
+          shell: bash
           working_directory: ~/package
-          command: cmake --build ~/build --target package && mv ~/build/evmone*.tar.gz* .
+          command: cmake --build ~/build --target package && mv ~/build/evmone-*.* .
       - store_artifacts:
           path: ~/package
           destination: package
@@ -259,17 +290,17 @@ jobs:
   lint:
     executor: lint
     steps:
-    - checkout
-    - run:
-        name: "Check code format"
-        command: |
-          clang-format --version
-          find include lib test -name '*.hpp' -o -name '*.cpp' -o -name '*.h' -o -name '*.c' | xargs clang-format -i
-          git diff --color --exit-code
-    - run:
-        name: "Check spelling"
-        command: |
-          codespell --quiet-level=4 --skip=.git
+      - checkout
+      - run:
+          name: "Check code format"
+          command: |
+            clang-format --version
+            find include lib test -name '*.hpp' -o -name '*.cpp' -o -name '*.h' -o -name '*.c' | xargs clang-format -i
+            git diff --color --exit-code
+      - run:
+          name: "Check spelling"
+          command: |
+            codespell --quiet-level=4 --skip=.git
 
   release-linux:
     executor: linux-gcc-latest
@@ -277,6 +308,68 @@ jobs:
       BUILD_TYPE: Release
     steps:
       - build
+      - test
+      - package
+
+  release-windows:
+    executor: win/server-2022
+    environment:
+      CMAKE_BUILD_TYPE: Release
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    steps:
+      - checkout
+      - checkout_submodules
+      - run:
+          name: "Setup environment (bash)"
+          shell: bash
+          command: |
+            echo 'export PATH=$PATH:"/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin"' >> $BASH_ENV
+      - run:
+          name: 'Configure'
+          shell: powershell
+          command: |
+            $ErrorActionPreference = "Stop"
+            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64
+            which cmake
+            cmake -S . -B ~/build -G Ninja -DCMAKE_INSTALL_PREFIX=C:\install -DEVMONE_TESTING=ON
+      - run:
+          name: 'Build'
+          shell: powershell
+          command: |
+            $ErrorActionPreference = "Stop"
+            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64
+            cmake --build ~/build
+      - test
+      - package
+
+  release-windows-32bit:
+    executor: win/server-2022
+    environment:
+      CMAKE_BUILD_TYPE: Release
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    steps:
+      - checkout
+      - checkout_submodules
+      - run:
+          name: "Setup environment (bash)"
+          shell: bash
+          command: |
+            echo 'export PATH=$PATH:"/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin"' >> $BASH_ENV
+      - run:
+          name: 'Configure'
+          shell: powershell
+          command: |
+            $ErrorActionPreference = "Stop"
+            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch x86
+            which cmake
+            cmake -S . -B ~/build -G Ninja -DCMAKE_INSTALL_PREFIX=C:\install -DEVMONE_TESTING=ON
+      - run:
+          name: 'Build'
+          shell: powershell
+          command: |
+            $ErrorActionPreference = "Stop"
+            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch x86
+            cmake --build ~/build
       - test
       - package
 
@@ -319,9 +412,9 @@ jobs:
     steps:
       - build
       - build_silkworm:
-          commit: 4f2c788477a6673a635876c42a5cc596794dd8c5
-      - download_consensus_tests:
-          rev: v10.4
+          commit: 30ca8b324fcffb574c23c09fcba6386e57a7a5af
+      - download_execution_tests:
+          rev: v12.2
       - run:
           name: "Silkworm-driven blockchain tests (Advanced)"
           working_directory: ~/build
@@ -343,22 +436,14 @@ jobs:
       CMAKE_OPTIONS: -DCMAKE_CXX_FLAGS=-Og
     steps:
       - build
-      - run:
-          # TODO: Merge with download_consensus_tests
-          name: "Download tests"
-          working_directory: ~/tests
-          command: |
-            git clone --no-checkout --depth=50 --single-branch https://github.com/ethereum/tests .
-            git checkout cde14b047d0d2549ed8fd46b4946aed0ec938cbf
-            git submodule update --init --depth=1
+      - download_execution_tests:
+          rev: v12.2
       - run:
           name: "State tests"
           working_directory: ~/build
-          command: bin/evmone-statetest ~/tests/GeneralStateTests
-      - run:
-          name: "State tests (legacy)"
-          working_directory: ~/build
-          command: bin/evmone-statetest ~/tests/LegacyTests/Constantinople/GeneralStateTests
+          command: |
+            export EVMONE_PRECOMPILES_STUB=~/project/test/state/precompiles_stub.json 
+            bin/evmone-statetest ~/tests/GeneralStateTests ~/tests/EIPTests/StateTests/stEOF ~/tests/LegacyTests/Constantinople/GeneralStateTests
       - collect_coverage_gcc
       - upload_coverage:
           flags: statetests
@@ -462,7 +547,7 @@ jobs:
           name: "Run evmone-fuzzer"
           working_directory: ~/build
           command: |
-            bin/evmone-fuzzer -runs=10000000 -fork=$CMAKE_BUILD_PARALLEL_LEVEL -fork_corpus_groups=1 ~/corpus -create_missing_dirs=1 -max_len=100 -entropic_scale_per_exec_time=1 2>&1 | sed '/NEW_FUNC/d'
+            bin/evmone-fuzzer -runs=5000000 -fork=$CMAKE_BUILD_PARALLEL_LEVEL -fork_corpus_groups=1 ~/corpus -create_missing_dirs=1 -max_len=100 -entropic_scale_per_exec_time=1 2>&1 | sed '/NEW_FUNC/d'
       - save_cache:
           name: "Save fuzzing corpus"
           key: fuzzing-corpus-{{epoch}}
@@ -482,6 +567,15 @@ jobs:
       - build
       - test
 
+  xcode-min:
+    executor: macos-xcode-min
+    steps:
+      - run:
+          name: "Install System Dependencies"
+          command: HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+      - build
+      - test
+
   cmake-min:
     executor: linux-base
     steps:
@@ -489,6 +583,27 @@ jobs:
           version: 3.16.9
       - build
       - test
+
+  x86-64-v1:
+    executor: linux-gcc-latest
+    environment:
+      BUILD_TYPE: Release
+      QEMU_CPU: core2duo  # The lowest 64-bit CPU I could find, but qemu64 should be good too.
+    steps:
+      - run:
+          name: "Install qemu"
+          command: sudo apt update -y && sudo apt install -y qemu-user-static
+      - build
+      - run:
+          name: "Check evmone.so"
+          working_directory: ~/build
+          command: (! qemu-x86_64-static bin/evmc run --vm ./lib/libevmone.so,trace 6000 2>&1) | grep "CPU does not support"
+      - run:
+          name: "Check unittests"
+          working_directory: ~/build
+          command: (! qemu-x86_64-static bin/evmone-unittests 2>&1) | grep "CPU does not support"
+
+
 
 workflows:
   version: 2
@@ -499,15 +614,19 @@ workflows:
           filters:
             tags:
               only: /.*/
+      - release-windows:
+          filters:
+            tags:
+              only: /.*/
+      - release-windows-32bit
       - release-macos:
           filters:
-            branches:
-              ignore: /.*/
             tags:
               only: /.*/
       - deploy:
           requires:
             - release-linux
+            - release-windows
             - release-macos
           filters:
             branches:
@@ -524,5 +643,7 @@ workflows:
       - clang-latest-sanitizers
       - clang-latest-coverage
       - macos-asan
+      - xcode-min
       - gcc-32bit
+      - x86-64-v1
       - fuzzing
