@@ -28,13 +28,10 @@ TEST(execution_state, construct)
     const evmone::ExecutionState st{
         msg, EVMC_MAX_REVISION, host_interface, nullptr, {code, std::size(code)}};
 
-    EXPECT_EQ(st.gas_left, -1);
     EXPECT_EQ(st.memory.size(), 0);
     EXPECT_EQ(st.msg, &msg);
     EXPECT_EQ(st.rev, EVMC_MAX_REVISION);
     EXPECT_EQ(st.return_data.size(), 0);
-    EXPECT_EQ(st.code.data(), &code[0]);
-    EXPECT_EQ(st.code.size(), std::size(code));
     EXPECT_EQ(st.status, EVMC_SUCCESS);
     EXPECT_EQ(st.output_offset, 0);
     EXPECT_EQ(st.output_size, 0);
@@ -44,13 +41,10 @@ TEST(execution_state, default_construct)
 {
     const evmone::ExecutionState st;
 
-    EXPECT_EQ(st.gas_left, 0);
     EXPECT_EQ(st.memory.size(), 0);
     EXPECT_EQ(st.msg, nullptr);
     EXPECT_EQ(st.rev, EVMC_FRONTIER);
     EXPECT_EQ(st.return_data.size(), 0);
-    EXPECT_EQ(st.code.data(), nullptr);
-    EXPECT_EQ(st.code.size(), 0);
     EXPECT_EQ(st.status, EVMC_SUCCESS);
     EXPECT_EQ(st.output_offset, 0);
     EXPECT_EQ(st.output_size, 0);
@@ -66,8 +60,6 @@ TEST(execution_state, default_construct_advanced)
     EXPECT_EQ(st.msg, nullptr);
     EXPECT_EQ(st.rev, EVMC_FRONTIER);
     EXPECT_EQ(st.return_data.size(), 0);
-    EXPECT_EQ(st.code.data(), nullptr);
-    EXPECT_EQ(st.code.size(), 0);
     EXPECT_EQ(st.status, EVMC_SUCCESS);
     EXPECT_EQ(st.output_offset, 0);
     EXPECT_EQ(st.output_size, 0);
@@ -79,8 +71,7 @@ TEST(execution_state, default_construct_advanced)
 TEST(execution_state, reset_advanced)
 {
     const evmc_message msg{};
-    const uint8_t code[]{0xff};
-    evmone::advanced::AdvancedCodeAnalysis analysis;
+    const evmone::advanced::AdvancedCodeAnalysis analysis;
 
     evmone::advanced::AdvancedExecutionState st;
     st.gas_left = 1;
@@ -90,7 +81,6 @@ TEST(execution_state, reset_advanced)
     st.msg = &msg;
     st.rev = EVMC_BYZANTIUM;
     st.return_data.push_back('0');
-    st.code = {code, std::size(code)};
     st.status = EVMC_FAILURE;
     st.output_offset = 3;
     st.output_size = 4;
@@ -104,8 +94,6 @@ TEST(execution_state, reset_advanced)
     EXPECT_EQ(st.msg, &msg);
     EXPECT_EQ(st.rev, EVMC_BYZANTIUM);
     EXPECT_EQ(st.return_data.size(), 1);
-    EXPECT_EQ(st.code.data(), &code[0]);
-    EXPECT_EQ(st.code.size(), 1);
     EXPECT_EQ(st.status, EVMC_FAILURE);
     EXPECT_EQ(st.output_offset, 3);
     EXPECT_EQ(st.output_size, 4u);
@@ -129,8 +117,6 @@ TEST(execution_state, reset_advanced)
         EXPECT_EQ(st.msg, &msg2);
         EXPECT_EQ(st.rev, EVMC_HOMESTEAD);
         EXPECT_EQ(st.return_data.size(), 0);
-        EXPECT_EQ(st.code.data(), &code2[0]);
-        EXPECT_EQ(st.code.size(), 2);
         EXPECT_EQ(st.status, EVMC_SUCCESS);
         EXPECT_EQ(st.output_offset, 0);
         EXPECT_EQ(st.output_size, 0);
@@ -173,7 +159,7 @@ TEST(execution_state, memory_view)
     evmone::Memory memory;
     memory.grow(32);
 
-    evmone::bytes_view view{memory.data(), memory.size()};
+    const evmone::bytes_view view{memory.data(), memory.size()};
     ASSERT_EQ(view.size(), 32);
     EXPECT_EQ(view[0], 0x00);
     EXPECT_EQ(view[1], 0x00);

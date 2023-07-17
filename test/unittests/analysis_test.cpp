@@ -2,7 +2,6 @@
 // Copyright 2018-2019 The evmone Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-#include <evmc/instructions.h>
 #include <evmone/advanced_analysis.hpp>
 #include <evmone/eof.hpp>
 #include <gtest/gtest.h>
@@ -99,8 +98,7 @@ TEST(analysis, jump1)
 
 TEST(analysis, empty)
 {
-    bytes code;
-    auto analysis = analyze(rev, code);
+    const auto analysis = analyze(rev, {});
 
     ASSERT_EQ(analysis.instrs.size(), 2);
     EXPECT_EQ(analysis.instrs[0].fn, op_tbl[OPX_BEGINBLOCK].fn);
@@ -110,7 +108,7 @@ TEST(analysis, empty)
 TEST(analysis, only_jumpdest)
 {
     const auto code = bytecode{OP_JUMPDEST};
-    auto analysis = analyze(rev, code);
+    const auto analysis = analyze(rev, code);
 
     ASSERT_EQ(analysis.jumpdest_offsets.size(), 1);
     ASSERT_EQ(analysis.jumpdest_targets.size(), 1);
@@ -121,7 +119,7 @@ TEST(analysis, only_jumpdest)
 TEST(analysis, jumpi_at_the_end)
 {
     const auto code = bytecode{OP_JUMPI};
-    auto analysis = analyze(rev, code);
+    const auto analysis = analyze(rev, code);
 
     ASSERT_EQ(analysis.instrs.size(), 3);
     EXPECT_EQ(analysis.instrs[0].fn, op_tbl[OPX_BEGINBLOCK].fn);
@@ -134,7 +132,7 @@ TEST(analysis, terminated_last_block)
     // TODO: Even if the last basic block is properly terminated an additional artificial block
     // is going to be created with only STOP instruction.
     const auto code = ret(0, 0);
-    auto analysis = analyze(rev, code);
+    const auto analysis = analyze(rev, code);
 
     ASSERT_EQ(analysis.instrs.size(), 5);
     EXPECT_EQ(analysis.instrs[0].fn, op_tbl[OPX_BEGINBLOCK].fn);
@@ -148,7 +146,7 @@ TEST(analysis, jump_dead_code)
     constexpr auto jumpdest_index = 3;
 
     const auto code = push(jumpdest_offset) + OP_JUMP + 3 * OP_ADD + OP_JUMPDEST;
-    auto analysis = analyze(rev, code);
+    const auto analysis = analyze(rev, code);
 
     ASSERT_EQ(analysis.instrs.size(), 5);
     EXPECT_EQ(analysis.instrs[0].arg.block.gas_cost, 3 + 8);
@@ -260,9 +258,9 @@ TEST(analysis, jumpdests_groups)
 TEST(analysis, example1_eof1)
 {
     const auto code = eof1_bytecode(
-        push(0x2a) + push(0x1e) + OP_MSTORE8 + OP_MSIZE + push(0) + OP_SSTORE, "deadbeef");
-    const auto header = evmone::read_valid_eof1_header(bytes_view(code).begin());
-    const auto analysis = analyze(EVMC_SHANGHAI, {&code[header.code_begin()], header.code_size});
+        push(0x2a) + push(0x1e) + OP_MSTORE8 + OP_MSIZE + push(0) + OP_SSTORE, 2, "deadbeef");
+    const auto header = evmone::read_valid_eof1_header(code);
+    const auto analysis = analyze(EVMC_CANCUN, header.get_code(code, 0));
 
     ASSERT_EQ(analysis.instrs.size(), 8);
 

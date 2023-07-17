@@ -4,7 +4,7 @@
 #pragma once
 
 #include <evmc/evmc.hpp>
-#include <evmc/instructions.h>
+#include <evmone/instructions_traits.hpp>
 #include <intx/intx.hpp>
 #include <test/utils/utils.hpp>
 #include <algorithm>
@@ -17,6 +17,10 @@ inline bytecode push(uint64_t n);
 inline bytecode push(evmc::address addr);
 inline bytecode push(evmc::bytes32 bs);
 
+using enum evmone::Opcode;
+using evmone::Opcode;
+
+// TODO: Pull bytecode in evmone namespace
 struct bytecode : bytes
 {
     bytecode() noexcept = default;
@@ -25,7 +29,7 @@ struct bytecode : bytes
 
     bytecode(const uint8_t* data, size_t size) : bytes{data, size} {}
 
-    bytecode(evmc_opcode opcode) : bytes{uint8_t(opcode)} {}
+    bytecode(Opcode opcode) : bytes{uint8_t(opcode)} {}
 
     template <typename T,
         typename = typename std::enable_if_t<std::is_convertible_v<T, std::string_view>>>
@@ -74,39 +78,41 @@ inline bytecode operator*(int n, bytecode c)
     return out;
 }
 
-inline bytecode operator*(int n, evmc_opcode op)
+inline bytecode operator*(int n, Opcode op)
 {
     return n * bytecode{op};
 }
 
-inline bytes big_endian(uint16_t value)
+template <typename T>
+inline typename std::enable_if_t<std::is_same_v<T, uint16_t> || std::is_same_v<T, int16_t>, bytes>
+big_endian(T value)
 {
     return {static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value)};
 }
 
-inline bytecode eof_header(uint8_t version, uint16_t code_size, uint16_t data_size)
+inline bytecode eof_header(
+    uint8_t version, uint16_t code_size, uint16_t max_stack_height, uint16_t data_size)
 {
     bytecode out{bytes{0xEF, 0x00, version}};
-
-    out += "01" + big_endian(code_size);
-
-    if (data_size != 0)
-        out += "02" + big_endian(data_size);
-
+    out += "01" + big_endian(uint16_t{4});  // type header
+    out += "02"_hex + big_endian(uint16_t{1}) + big_endian(code_size);
+    out += "03" + big_endian(data_size);
     out += "00";
+    out += "0000"_hex + big_endian(max_stack_height);  // type section
     return out;
 }
 
-inline bytecode eof1_header(uint16_t code_size, uint16_t data_size = 0)
+inline bytecode eof1_header(uint16_t code_size, uint16_t max_stack_height, uint16_t data_size = 0)
 {
-    return eof_header(1, code_size, data_size);
+    return eof_header(1, code_size, max_stack_height, data_size);
 }
 
-inline bytecode eof1_bytecode(bytecode code, bytecode data = {})
+inline bytecode eof1_bytecode(bytecode code, uint16_t max_stack_height = 0, bytecode data = {})
 {
     assert(code.size() <= std::numeric_limits<uint16_t>::max());
     assert(data.size() <= std::numeric_limits<uint16_t>::max());
-    return eof1_header(static_cast<uint16_t>(code.size()), static_cast<uint16_t>(data.size())) +
+    return eof1_header(static_cast<uint16_t>(code.size()), max_stack_height,
+               static_cast<uint16_t>(data.size())) +
            code + data;
 }
 
@@ -116,7 +122,7 @@ inline bytecode push(bytes_view data)
         throw std::invalid_argument{"push data empty"};
     if (data.size() > (OP_PUSH32 - OP_PUSH1 + 1))
         throw std::invalid_argument{"push data too long"};
-    return evmc_opcode(data.size() + OP_PUSH1 - 1) + bytes{data};
+    return Opcode(data.size() + OP_PUSH1 - 1) + bytes{data};
 }
 
 inline bytecode push(std::string_view hex_data)
@@ -131,9 +137,9 @@ inline bytecode push(const intx::uint256& value)
     return push({data, std::size(data)});
 }
 
-bytecode push(evmc_opcode opcode) = delete;
+bytecode push(Opcode opcode) = delete;
 
-inline bytecode push(evmc_opcode opcode, const bytecode& data)
+inline bytecode push(Opcode opcode, const bytecode& data)
 {
     if (opcode < OP_PUSH1 || opcode > OP_PUSH32)
         throw std::invalid_argument{"invalid push opcode " + std::to_string(opcode)};
@@ -238,6 +244,24 @@ inline bytecode jumpi(bytecode target, bytecode condition)
     return condition + target + OP_JUMPI;
 }
 
+inline bytecode rjump(int16_t offset)
+{
+    return OP_RJUMP + big_endian(offset);
+}
+
+inline bytecode rjumpi(int16_t offset, bytecode condition)
+{
+    return condition + (OP_RJUMPI + big_endian(offset));
+}
+
+inline bytecode rjumpv(const std::initializer_list<int16_t> offsets, bytecode condition)
+{
+    bytecode ret = condition + OP_RJUMPV + static_cast<Opcode>(offsets.size());
+    for (const auto offset : offsets)
+        ret += bytecode{big_endian(offset)};
+    return ret;
+}
+
 inline bytecode ret(bytecode index, bytecode size)
 {
     return size + index + OP_RETURN;
@@ -273,6 +297,16 @@ inline bytecode calldataload(bytecode index)
     return index + OP_CALLDATALOAD;
 }
 
+inline bytecode calldatasize()
+{
+    return OP_CALLDATASIZE;
+}
+
+inline bytecode calldatacopy(bytecode src, bytecode dst, bytecode size)
+{
+    return std::move(size) + std::move(dst) + std::move(src) + OP_CALLDATACOPY;
+}
+
 inline bytecode sstore(bytecode index, bytecode value)
 {
     return value + index + OP_SSTORE;
@@ -283,7 +317,7 @@ inline bytecode sload(bytecode index)
     return index + OP_SLOAD;
 }
 
-template <evmc_opcode kind>
+template <Opcode kind>
 struct call_instruction
 {
 private:
@@ -305,7 +339,7 @@ public:
     }
 
 
-    template <evmc_opcode k = kind>
+    template <Opcode k = kind>
     typename std::enable_if<k == OP_CALL || k == OP_CALLCODE, call_instruction&>::type value(
         bytecode v)
     {
@@ -358,7 +392,7 @@ inline call_instruction<OP_CALLCODE> callcode(bytecode address)
 }
 
 
-template <evmc_opcode kind>
+template <Opcode kind>
 struct create_instruction
 {
 private:
@@ -381,7 +415,7 @@ public:
         return *this;
     }
 
-    template <evmc_opcode k = kind>
+    template <Opcode k = kind>
     typename std::enable_if<k == OP_CREATE2, create_instruction&>::type salt(bytecode salt)
     {
         m_salt = std::move(salt);
@@ -409,28 +443,18 @@ inline auto create2()
 }
 
 
-inline std::string hex(evmc_opcode opcode) noexcept
+inline std::string hex(Opcode opcode) noexcept
 {
     return hex(static_cast<uint8_t>(opcode));
 }
 
-inline std::string to_name(evmc_opcode opcode, evmc_revision rev = EVMC_MAX_REVISION) noexcept
-{
-    const auto names = evmc_get_instruction_names_table(rev);
-    if (const auto name = names[opcode]; name)
-        return name;
-
-    return "UNDEFINED_INSTRUCTION:" + hex(opcode);
-}
-
-inline std::string decode(bytes_view bytecode, evmc_revision rev)
+inline std::string decode(bytes_view bytecode)
 {
     auto s = std::string{"bytecode{}"};
-    const auto names = evmc_get_instruction_names_table(rev);
     for (auto it = bytecode.begin(); it != bytecode.end(); ++it)
     {
         const auto opcode = *it;
-        if (const auto name = names[opcode]; name)
+        if (const auto name = evmone::instr::traits[opcode].name; name)
         {
             s += std::string{" + OP_"} + name;
 

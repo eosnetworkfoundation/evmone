@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include <evmc/instructions.h>
+#include "instructions_opcodes.hpp"
 #include <array>
 #include <optional>
 
@@ -164,6 +164,15 @@ constexpr inline GasCostTable gas_costs = []() noexcept {
     table[EVMC_SHANGHAI][OP_PUSH0] = 2;
 
     table[EVMC_CANCUN] = table[EVMC_SHANGHAI];
+    table[EVMC_CANCUN][OP_DUPN] = 3;
+    table[EVMC_CANCUN][OP_SWAPN] = 3;
+    table[EVMC_CANCUN][OP_RJUMP] = 2;
+    table[EVMC_CANCUN][OP_RJUMPI] = 4;
+    table[EVMC_CANCUN][OP_RJUMPV] = 4;
+    table[EVMC_CANCUN][OP_CALLF] = 5;
+    table[EVMC_CANCUN][OP_RETF] = 3;
+
+    table[EVMC_PRAGUE] = table[EVMC_CANCUN];
 
     return table;
 }();
@@ -199,7 +208,7 @@ struct Traits
 /// Determines if an instruction has constant base gas cost across all revisions.
 /// Note that this is not true for instructions with constant base gas cost but
 /// not available in the first revision (e.g. SHL).
-inline constexpr bool has_const_gas_cost(evmc_opcode op) noexcept
+inline constexpr bool has_const_gas_cost(Opcode op) noexcept
 {
     const auto g = gas_costs[EVMC_FRONTIER][op];
     for (size_t r = EVMC_FRONTIER + 1; r <= EVMC_MAX_REVISION; ++r)
@@ -284,6 +293,10 @@ constexpr inline std::array<Traits, 256> traits = []() noexcept {
     table[OP_MSIZE] = {"MSIZE", 0, false, 0, 1, EVMC_FRONTIER};
     table[OP_GAS] = {"GAS", 0, false, 0, 1, EVMC_FRONTIER};
     table[OP_JUMPDEST] = {"JUMPDEST", 0, false, 0, 0, EVMC_FRONTIER};
+    table[OP_RJUMP] = {"RJUMP", 2, false, 0, 0, EVMC_CANCUN};
+    table[OP_RJUMPI] = {"RJUMPI", 2, false, 1, -1, EVMC_CANCUN};
+    table[OP_RJUMPV] = {
+        "RJUMPV", 0 /* WARNING: immediate_size is dynamic */, false, 1, -1, EVMC_CANCUN};
 
     table[OP_PUSH0] = {"PUSH0", 0, false, 0, 1, EVMC_SHANGHAI};
 
@@ -360,6 +373,9 @@ constexpr inline std::array<Traits, 256> traits = []() noexcept {
     table[OP_LOG3] = {"LOG3", 0, false, 5, -5, EVMC_FRONTIER};
     table[OP_LOG4] = {"LOG4", 0, false, 6, -6, EVMC_FRONTIER};
 
+    table[OP_DUPN] = {"DUPN", 1, false, 0, 1, EVMC_CANCUN};
+    table[OP_SWAPN] = {"SWAPN", 1, false, 0, 0, EVMC_CANCUN};
+
     table[OP_CREATE] = {"CREATE", 0, false, 3, -2, EVMC_FRONTIER};
     table[OP_CALL] = {"CALL", 0, false, 7, -6, EVMC_FRONTIER};
     table[OP_CALLCODE] = {"CALLCODE", 0, false, 7, -6, EVMC_FRONTIER};
@@ -367,6 +383,8 @@ constexpr inline std::array<Traits, 256> traits = []() noexcept {
     table[OP_DELEGATECALL] = {"DELEGATECALL", 0, false, 6, -5, EVMC_HOMESTEAD};
     table[OP_CREATE2] = {"CREATE2", 0, false, 4, -3, EVMC_CONSTANTINOPLE};
     table[OP_STATICCALL] = {"STATICCALL", 0, false, 6, -5, EVMC_BYZANTIUM};
+    table[OP_CALLF] = {"CALLF", 2, false, 0, 0, EVMC_CANCUN};
+    table[OP_RETF] = {"RETF", 0, true, 0, 0, EVMC_CANCUN};
     table[OP_REVERT] = {"REVERT", 0, true, 2, -2, EVMC_BYZANTIUM};
     table[OP_INVALID] = {"INVALID", 0, true, 0, 0, EVMC_FRONTIER};
     table[OP_SELFDESTRUCT] = {"SELFDESTRUCT", 0, true, 1, -1, EVMC_FRONTIER};
