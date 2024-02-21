@@ -60,15 +60,23 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         msg.input_size = input_size;
     }
 
-    auto cost = has_value ? 9000 : 0;
+    int64_t cost = has_value ? 9000 : 0;
 
     if constexpr (Op == OP_CALL)
     {
         if (has_value && state.in_static_mode())
             return {EVMC_STATIC_MODE_VIOLATION, gas_left};
 
-        if ((has_value || state.rev < EVMC_SPURIOUS_DRAGON) && !state.host.account_exists(dst))
-            cost += 25000;
+        if ((has_value || state.rev < EVMC_SPURIOUS_DRAGON) && !state.host.account_exists(dst)) {
+            if( state.eos_evm_version > 0 ) {
+                cost += static_cast<int64_t>(state.gas_params.G_newaccount);
+                if( state.msg->depth == 0 ) {
+                    cost += static_cast<int64_t>(state.gas_params.G_txnewaccount);
+                }
+            } else {
+                cost += 25000;
+            }
+        }
     }
 
     if ((gas_left -= cost) < 0)
@@ -171,7 +179,6 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
     msg.depth = state.msg->depth + 1;
     msg.create2_salt = intx::be::store<evmc::bytes32>(salt);
     msg.value = intx::be::store<evmc::uint256be>(endowment);
-
     const auto result = state.host.call(msg);
     gas_left -= msg.gas - result.gas_left;
     state.gas_refund += result.gas_refund;

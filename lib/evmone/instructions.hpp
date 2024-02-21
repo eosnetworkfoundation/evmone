@@ -1012,7 +1012,8 @@ inline TermResult selfdestruct(StackTop stack, int64_t gas_left, ExecutionState&
             // sending value to a non-existing account.
             if (!state.host.account_exists(beneficiary))
             {
-                if ((gas_left -= 25000) < 0)
+                int64_t cost = state.eos_evm_version > 0 ? static_cast<int64_t>(state.gas_params.G_newaccount) : 25000;
+                if ((gas_left -= cost) < 0)
                     return {EVMC_OUT_OF_GAS, gas_left};
             }
         }
@@ -1023,6 +1024,7 @@ inline TermResult selfdestruct(StackTop stack, int64_t gas_left, ExecutionState&
         if (state.rev < EVMC_LONDON)
             state.gas_refund += 24000;
     }
+
     return {EVMC_SUCCESS, gas_left};
 }
 

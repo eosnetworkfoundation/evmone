@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <vector>
+#include <optional>
 
 namespace evmone::advanced
 {
@@ -108,9 +109,9 @@ struct AdvancedExecutionState : ExecutionState
     /// Resets the contents of the execution_state so that it could be reused.
     void reset(const evmc_message& message, evmc_revision revision,
         const evmc_host_interface& host_interface, evmc_host_context* host_ctx,
-        bytes_view _code) noexcept
+        bytes_view _code, evmone::gas_parameters gasparams) noexcept
     {
-        ExecutionState::reset(message, revision, host_interface, host_ctx, _code);
+        ExecutionState::reset(message, revision, host_interface, host_ctx, _code, gasparams);
         gas_left = message.gas;
         stack.reset(stack_space.bottom());
         analysis.advanced = nullptr;  // For consistency with previous behavior.
@@ -190,6 +191,8 @@ inline int find_jumpdest(const AdvancedCodeAnalysis& analysis, int offset) noexc
                analysis.jumpdest_targets[static_cast<size_t>(it - begin)] :
                -1;
 }
+
+EVMC_EXPORT AdvancedCodeAnalysis analyze(evmc_revision rev, bytes_view code, const AdvancedExecutionState& state) noexcept;
 
 EVMC_EXPORT AdvancedCodeAnalysis analyze(evmc_revision rev, bytes_view code) noexcept;
 
