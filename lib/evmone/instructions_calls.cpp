@@ -70,9 +70,6 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         if ((has_value || state.rev < EVMC_SPURIOUS_DRAGON) && !state.host.account_exists(dst)) {
             if( state.eos_evm_version > 0 ) {
                 cost += static_cast<int64_t>(state.gas_params.G_newaccount);
-                if( state.msg->depth == 0 ) {
-                    cost += static_cast<int64_t>(state.gas_params.G_txnewaccount);
-                }
             } else {
                 cost += 25000;
             }

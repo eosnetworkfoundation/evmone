@@ -81,33 +81,21 @@ TEST_P(evm, call_new_account_creation_cost_eos_evm)
 
     msg.recipient = msg_dst;
 
+    //----------------------------------------------
+    // Test account creation from inside a contract
+    //----------------------------------------------
+
     gas_params.G_newaccount   = 25005;
-    gas_params.G_txnewaccount = 500;
+    gas_params.G_txnewaccount = 25006;
+
     host.accounts[msg.recipient].set_balance(1024);
     execute(code);
-
-    // PUSHs+RETURN + CALL + G_newaccount + G_txnewaccount + has_value
-    EXPECT_GAS_USED(EVMC_SUCCESS, 3*12 + 700 + 25005 + 500 + 9000);
-    EXPECT_OUTPUT_INT(1);
-    ASSERT_EQ(host.recorded_calls.size(), 1);
-    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
-    EXPECT_EQ(host.recorded_calls.back().gas, 2300);
-
-    //-------------------------------------------------------
-    // Test account creation from inside a contract (depth=1)
-    //-------------------------------------------------------
-    msg.depth = 1;
-    constexpr auto call_dst2 = 0x00000000000000000000000000000000000000ae_address;
-    const auto code2 = 4 * push(0) + push(1) + push(call_dst2) + push(0) + OP_CALL + ret_top();
-    host.recorded_calls.clear();
-    host.accounts[msg.recipient].set_balance(1024);
-    execute(code2);
 
     // PUSHs+RETURN + CALL + G_newaccount + has_value
     EXPECT_GAS_USED(EVMC_SUCCESS, 3*12 + 700 + 25005 + 9000);
     EXPECT_OUTPUT_INT(1);
     ASSERT_EQ(host.recorded_calls.size(), 1);
-    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst2);
+    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
     EXPECT_EQ(host.recorded_calls.back().gas, 2300);
 }
 
