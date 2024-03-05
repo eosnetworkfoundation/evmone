@@ -109,13 +109,13 @@ namespace
 ///          or EVMC_SUCCESS if everything is fine.
 template <Opcode Op>
 inline evmc_status_code check_requirements(const CostTable& cost_table, int64_t& gas_left,
-    const uint256* stack_top, const uint256* stack_bottom) noexcept
+    const uint256* stack_top, const uint256* stack_bottom, const ExecutionState& state) noexcept
 {
     static_assert(
         !instr::has_const_gas_cost(Op) || instr::gas_costs[EVMC_FRONTIER][Op] != instr::undefined,
         "undefined instructions must not be handled by check_requirements()");
 
-    auto gas_cost = instr::gas_costs[EVMC_FRONTIER][Op];  // Init assuming const cost.
+    int64_t gas_cost = instr::gas_costs[EVMC_FRONTIER][Op];  // Init assuming const cost.
     if constexpr (!instr::has_const_gas_cost(Op))
     {
         gas_cost = cost_table[Op];  // If not, load the cost from the table.
@@ -141,6 +141,12 @@ inline evmc_status_code check_requirements(const CostTable& cost_table, int64_t&
         static constexpr auto min_offset = instr::traits[Op].stack_height_required - 1;
         if (INTX_UNLIKELY(stack_top <= stack_bottom + min_offset))
             return EVMC_STACK_UNDERFLOW;
+    }
+
+    if constexpr (Op == OP_CREATE || Op == OP_CREATE2) {
+        if(state.eos_evm_version > 0) {
+            gas_cost = static_cast<int64_t>(state.gas_params.G_txcreate);
+        }
     }
 
     if (INTX_UNLIKELY((gas_left -= gas_cost) < 0))
@@ -210,7 +216,7 @@ template <Opcode Op>
 [[release_inline]] inline Position invoke(const CostTable& cost_table, const uint256* stack_bottom,
     Position pos, int64_t& gas, ExecutionState& state) noexcept
 {
-    if (const auto status = check_requirements<Op>(cost_table, gas, pos.stack_top, stack_bottom);
+    if (const auto status = check_requirements<Op>(cost_table, gas, pos.stack_top, stack_bottom, state);
         status != EVMC_SUCCESS)
     {
         state.status = status;

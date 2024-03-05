@@ -12,10 +12,10 @@ namespace
 struct StorageCostSpec
 {
     bool net_cost;        ///< Is this net gas cost metering schedule?
-    int16_t warm_access;  ///< Storage warm access cost, YP: G_{warmaccess}
-    int16_t set;          ///< Storage addition cost, YP: G_{sset}
-    int16_t reset;        ///< Storage modification cost, YP: G_{sreset}
-    int16_t clear;        ///< Storage deletion refund, YP: R_{sclear}
+    int64_t warm_access;  ///< Storage warm access cost, YP: G_{warmaccess}
+    int64_t set;          ///< Storage addition cost, YP: G_{sset}
+    int64_t reset;        ///< Storage modification cost, YP: G_{sreset}
+    int64_t clear;        ///< Storage deletion refund, YP: R_{sclear}
 };
 
 /// Table of gas cost specification for storage instructions per EVM revision.
@@ -42,16 +42,9 @@ constexpr auto storage_cost_spec = []() noexcept {
     return tbl;
 }();
 
-
-struct StorageStoreCost
-{
-    int16_t gas_cost;
-    int16_t gas_refund;
-};
-
 // The lookup table of SSTORE costs by the storage update status.
 constexpr auto sstore_costs = []() noexcept {
-    std::array<std::array<StorageStoreCost, EVMC_STORAGE_MODIFIED_RESTORED + 1>,
+    std::array<std::array<evmone::StorageStoreCost, EVMC_STORAGE_MODIFIED_RESTORED + 1>,
         EVMC_MAX_REVISION + 1>
         tbl{};
 
@@ -60,30 +53,27 @@ constexpr auto sstore_costs = []() noexcept {
         auto& e = tbl[rev];
         if (const auto c = storage_cost_spec[rev]; !c.net_cost)  // legacy
         {
-            e[EVMC_STORAGE_ADDED] = {c.set, 0};
-            e[EVMC_STORAGE_DELETED] = {c.reset, c.clear};
-            e[EVMC_STORAGE_MODIFIED] = {c.reset, 0};
-            e[EVMC_STORAGE_ASSIGNED] = e[EVMC_STORAGE_MODIFIED];
-            e[EVMC_STORAGE_DELETED_ADDED] = e[EVMC_STORAGE_ADDED];
-            e[EVMC_STORAGE_MODIFIED_DELETED] = e[EVMC_STORAGE_DELETED];
-            e[EVMC_STORAGE_DELETED_RESTORED] = e[EVMC_STORAGE_ADDED];
-            e[EVMC_STORAGE_ADDED_DELETED] = e[EVMC_STORAGE_DELETED];
+            e[EVMC_STORAGE_ADDED]             = {c.set, 0};
+            e[EVMC_STORAGE_DELETED]           = {c.reset, c.clear};
+            e[EVMC_STORAGE_MODIFIED]          = {c.reset, 0};
+            e[EVMC_STORAGE_ASSIGNED]          = e[EVMC_STORAGE_MODIFIED];
+            e[EVMC_STORAGE_DELETED_ADDED]     = e[EVMC_STORAGE_ADDED];
+            e[EVMC_STORAGE_MODIFIED_DELETED]  = e[EVMC_STORAGE_DELETED];
+            e[EVMC_STORAGE_DELETED_RESTORED]  = e[EVMC_STORAGE_ADDED];
+            e[EVMC_STORAGE_ADDED_DELETED]     = e[EVMC_STORAGE_DELETED];
             e[EVMC_STORAGE_MODIFIED_RESTORED] = e[EVMC_STORAGE_MODIFIED];
         }
         else  // net cost
         {
-            e[EVMC_STORAGE_ASSIGNED] = {c.warm_access, 0};
-            e[EVMC_STORAGE_ADDED] = {c.set, 0};
-            e[EVMC_STORAGE_DELETED] = {c.reset, c.clear};
-            e[EVMC_STORAGE_MODIFIED] = {c.reset, 0};
-            e[EVMC_STORAGE_DELETED_ADDED] = {c.warm_access, static_cast<int16_t>(-c.clear)};
-            e[EVMC_STORAGE_MODIFIED_DELETED] = {c.warm_access, c.clear};
-            e[EVMC_STORAGE_DELETED_RESTORED] = {
-                c.warm_access, static_cast<int16_t>(c.reset - c.warm_access - c.clear)};
-            e[EVMC_STORAGE_ADDED_DELETED] = {
-                c.warm_access, static_cast<int16_t>(c.set - c.warm_access)};
-            e[EVMC_STORAGE_MODIFIED_RESTORED] = {
-                c.warm_access, static_cast<int16_t>(c.reset - c.warm_access)};
+            e[EVMC_STORAGE_ASSIGNED]          = {c.warm_access, 0};
+            e[EVMC_STORAGE_ADDED]             = {c.set, 0};
+            e[EVMC_STORAGE_DELETED]           = {c.reset, c.clear};
+            e[EVMC_STORAGE_MODIFIED]          = {c.reset, 0};
+            e[EVMC_STORAGE_DELETED_ADDED]     = {c.warm_access, -c.clear};
+            e[EVMC_STORAGE_MODIFIED_DELETED]  = {c.warm_access, c.clear};
+            e[EVMC_STORAGE_DELETED_RESTORED]  = {c.warm_access, c.reset - c.warm_access - c.clear};
+            e[EVMC_STORAGE_ADDED_DELETED]     = {c.warm_access, c.set - c.warm_access};
+            e[EVMC_STORAGE_MODIFIED_RESTORED] = {c.warm_access, c.reset - c.warm_access};
         }
     }
 
@@ -130,7 +120,8 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
             0;
     const auto status = state.host.set_storage(state.msg->recipient, key, value);
 
-    const auto [gas_cost_warm, gas_refund] = sstore_costs[state.rev][status];
+    const auto& storage_cost = state.eos_evm_version > 0 ? state.gas_params.storage_cost : sstore_costs[state.rev];
+    auto [gas_cost_warm, gas_refund] = storage_cost[status];
     const auto gas_cost = gas_cost_warm + gas_cost_cold;
     if ((gas_left -= gas_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};

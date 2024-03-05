@@ -8,8 +8,16 @@
 #include <string>
 #include <vector>
 
+#include "instructions_traits.hpp"
+
 namespace evmone
 {
+struct StorageStoreCost
+{
+    int64_t gas_cost;
+    int64_t gas_refund;
+};
+
 namespace advanced
 {
 struct AdvancedCodeAnalysis;
@@ -117,6 +125,47 @@ public:
     void clear() noexcept { m_size = 0; }
 };
 
+struct gas_parameters {
+
+    gas_parameters() {
+        generate_storage_cost_table();
+    }
+
+    gas_parameters(uint64_t txnewaccount, uint64_t newaccount, uint64_t txcreate, uint64_t codedeposit, uint64_t sset) :
+        G_txnewaccount{txnewaccount},
+        G_newaccount{newaccount},
+        G_txcreate{txcreate},
+        G_codedeposit{codedeposit},
+        G_sset{sset}{
+            generate_storage_cost_table();
+    }
+
+    void generate_storage_cost_table() {
+        int64_t warm_access = instr::warm_storage_read_cost;
+        int64_t set         = static_cast<int64_t>(G_sset);
+        int64_t reset       = 5000 - instr::cold_sload_cost;
+        int64_t clear       = 4800;
+
+        auto& st = storage_cost;
+        st[EVMC_STORAGE_ASSIGNED]          = {warm_access, 0};
+        st[EVMC_STORAGE_ADDED]             = {set, 0};
+        st[EVMC_STORAGE_DELETED]           = {reset, clear};
+        st[EVMC_STORAGE_MODIFIED]          = {reset, 0};
+        st[EVMC_STORAGE_DELETED_ADDED]     = {warm_access,-clear};
+        st[EVMC_STORAGE_MODIFIED_DELETED]  = {warm_access, clear};
+        st[EVMC_STORAGE_DELETED_RESTORED]  = {warm_access, reset - warm_access - clear};
+        st[EVMC_STORAGE_ADDED_DELETED]     = {warm_access, set - warm_access};
+        st[EVMC_STORAGE_MODIFIED_RESTORED] = {warm_access, reset - warm_access};
+    }
+
+    uint64_t G_txnewaccount = 0;
+    uint64_t G_newaccount = 25000;
+    uint64_t G_txcreate = 32000;
+    uint64_t G_codedeposit = 200;
+    uint64_t G_sset = 20000;
+
+    std::array<StorageStoreCost, EVMC_STORAGE_MODIFIED_RESTORED + 1> storage_cost;
+};
 
 /// Generic execution state for generic instructions implementations.
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
@@ -138,6 +187,9 @@ public:
     evmc_status_code status = EVMC_SUCCESS;
     size_t output_offset = 0;
     size_t output_size = 0;
+
+    uint64_t eos_evm_version=0;
+    gas_parameters gas_params;
 
 private:
     evmc_tx_context m_tx = {};
@@ -169,7 +221,7 @@ public:
     /// Resets the contents of the ExecutionState so that it could be reused.
     void reset(const evmc_message& message, evmc_revision revision,
         const evmc_host_interface& host_interface, evmc_host_context* host_ctx,
-        bytes_view _code) noexcept
+        bytes_view _code, gas_parameters _gas_params) noexcept
     {
         gas_refund = 0;
         memory.clear();
@@ -182,6 +234,7 @@ public:
         output_offset = 0;
         output_size = 0;
         m_tx = {};
+        gas_params = _gas_params;
     }
 
     [[nodiscard]] bool in_static_mode() const { return (msg->flags & EVMC_STATIC) != 0; }
