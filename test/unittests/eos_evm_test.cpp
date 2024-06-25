@@ -10,6 +10,12 @@
 using namespace evmc::literals;
 using evmone::test::evm;
 
+evmc_revision evm_version_to_revision[]={
+    EVMC_ISTANBUL, //eos_evm_version=0
+    EVMC_SHANGHAI, //eos_evm_version=1
+    EVMC_SHANGHAI  //eos_evm_version=2
+};
+
 TEST_P(evm, sstore_cost_eos_evm)
 {
     static constexpr auto O = 0x000000000000000000_bytes32;
@@ -34,8 +40,8 @@ TEST_P(evm, sstore_cost_eos_evm)
         EXPECT_EQ(result.gas_refund, expected_gas_refund);
     };
 
-    rev = EVMC_ISTANBUL;
     eos_evm_version = 1;
+    rev = evm_version_to_revision[eos_evm_version];
 
     test(O, O, O, EVMC_STORAGE_ASSIGNED );          // assigned
     test(X, O, O, EVMC_STORAGE_ASSIGNED );
@@ -57,27 +63,26 @@ TEST_P(evm, sstore_cost_eos_evm)
 
 TEST_P(evm, call_new_account_creation_cost_eos_evm)
 {
-    rev=EVMC_ISTANBUL;
-    eos_evm_version=1;
+    eos_evm_version = 1;
+    rev = evm_version_to_revision[eos_evm_version];
 
     constexpr auto call_dst = 0x00000000000000000000000000000000000000ad_address;
     constexpr auto msg_dst = 0x00000000000000000000000000000000000000fe_address;
     const auto code = 4 * push(0) + push(1) + push(call_dst) + push(0) + OP_CALL + ret_top();
 
-    //         | cost
-    // PUSH1   |  3
-    // PUSH1   |  3
-    // PUSH1   |  3
-    // PUSH1   |  3
-    // PUSH1   |  3
-    // PUSH20  |  3
-    // PUSH1   |  3
-    // CALL    | 700
-    // PUSH1   |  3
-    // MSTORE  |  3
-    // PUSH1   |  3
-    // PUSH1   |  3
-    // RETURN  |  3
+    // [00]	PUSH1	00                                        // 3
+    // [02]	PUSH1	00                                        // 3
+    // [04]	PUSH1	00                                        // 3
+    // [06]	PUSH1	00                                        // 3
+    // [08]	PUSH1	01                                        // 3
+    // [0a]	PUSH20	00000000000000000000000000000000000000ad  // 3
+    // [1f]	PUSH1	00                                        // 3
+    // [21]	CALL                                              // 100 + 25005 + 9000 + 2500
+    // [22]	PUSH1	00                                        // 3
+    // [24]	MSTORE                                            // 6
+    // [25]	PUSH1	20                                        // 3
+    // [27]	PUSH1	00                                        // 3
+    // [29]	RETURN                                            // 0
 
     msg.recipient = msg_dst;
 
@@ -91,18 +96,79 @@ TEST_P(evm, call_new_account_creation_cost_eos_evm)
     host.accounts[msg.recipient].set_balance(1024);
     execute(code);
 
-    // PUSHs+RETURN + CALL + G_newaccount + has_value
-    EXPECT_GAS_USED(EVMC_SUCCESS, 3*12 + 700 + 25005 + 9000);
+    EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(100+25005+9000+2500)+3+6+3+3+0);
     EXPECT_OUTPUT_INT(1);
     ASSERT_EQ(host.recorded_calls.size(), 1);
     EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
     EXPECT_EQ(host.recorded_calls.back().gas, 2300);
 }
 
+TEST_P(evm, call_reserved_address_cost_eos_evm)
+{
+    constexpr auto call_dst = 0xbbbbbbbbbbbbbbbbbbbbbbbb3ab3400000000000_address;  //'beto'
+    auto call_reserved_address = [&](uint64_t version) {
+        host.recorded_calls.clear();
+        host.recorded_account_accesses.clear();
+        eos_evm_version=version;
+        rev = evm_version_to_revision[eos_evm_version];
+
+        constexpr auto msg_dst = 0x00000000000000000000000000000000000000ad_address;
+        const auto code = 4 * push(0) + push(1) + push(call_dst) + push(0) + OP_CALL + ret_top();
+
+        // [00]	PUSH1	00                                        // 3
+        // [02]	PUSH1	00                                        // 3
+        // [04]	PUSH1	00                                        // 3
+        // [06]	PUSH1	00                                        // 3
+        // [08]	PUSH1	01                                        // 3
+        // [0a]	PUSH20	00000000000000000000000000000000000000ad  // 3
+        // [1f]	PUSH1	00                                        // 3
+        // [21]	CALL                                              // [100|700] + ? + 9000 + [2500|0] (?=depends on the eos_evm_version)
+        // [22]	PUSH1	00                                        // 3
+        // [24]	MSTORE                                            // 6
+        // [25]	PUSH1	20                                        // 3
+        // [27]	PUSH1	00                                        // 3
+        // [29]	RETURN                                            // 0
+
+        msg.recipient = msg_dst;
+
+        //----------------------------------------------
+        // Test account creation from inside a contract
+        //----------------------------------------------
+
+        gas_params.G_newaccount   = 25005;
+        gas_params.G_txnewaccount = 25006;
+
+        host.accounts[msg.recipient].set_balance(1024);
+        execute(code);
+    };
+
+    call_reserved_address(0);
+    EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(700+25000+9000+0)+3+6+3+3+0);
+    EXPECT_OUTPUT_INT(1);
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
+    EXPECT_EQ(host.recorded_calls.back().gas, 2300);
+
+    call_reserved_address(1);
+    EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(100+0+9000+2500)+3+6+3+3+0);
+    EXPECT_OUTPUT_INT(1);
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
+    EXPECT_EQ(host.recorded_calls.back().gas, 2300);
+
+    call_reserved_address(2);
+    EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(100+0+9000+2500)+3+6+3+3+0);
+    EXPECT_OUTPUT_INT(1);
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
+    EXPECT_EQ(host.recorded_calls.back().gas, 2300);
+
+}
+
 TEST_P(evm, selfdestruct_eos_evm)
 {
-    rev=EVMC_ISTANBUL;
-    eos_evm_version=1;
+    eos_evm_version = 1;
+    rev = evm_version_to_revision[eos_evm_version];
 
     gas_params.G_newaccount = 25005;
 
@@ -125,8 +191,8 @@ TEST_P(evm, selfdestruct_eos_evm)
 
 TEST_P(evm, create_gas_cost_eos_evm)
 {
-    rev=EVMC_ISTANBUL;
-    eos_evm_version=1;
+    eos_evm_version = 1;
+    rev = evm_version_to_revision[eos_evm_version];
 
     // Set CREATE opcode static gas cost to 32005
     gas_params.G_txcreate = 32005;
@@ -157,8 +223,8 @@ TEST_P(evm, create_gas_cost_eos_evm)
 
 TEST_P(evm, create2_gas_cost_eos_evm)
 {
-    rev=EVMC_ISTANBUL;
-    eos_evm_version=1;
+    eos_evm_version = 1;
+    rev = evm_version_to_revision[eos_evm_version];
 
     // Set CREATE2 opcode static gas cost to 32005
     gas_params.G_txcreate = 32005;
