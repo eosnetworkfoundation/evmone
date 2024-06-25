@@ -34,6 +34,35 @@
 
 namespace evmone::test
 {
+
+struct TestHost : evmc::MockedHost {
+    uint64_t eos_evm_version=0;
+
+    std::optional<uint64_t> extract_reserved_address(const evmc::address& addr) const {
+        constexpr uint8_t reserved_address_prefix[] = {0xbb, 0xbb, 0xbb, 0xbb,
+                                                    0xbb, 0xbb, 0xbb, 0xbb,
+                                                    0xbb, 0xbb, 0xbb, 0xbb};
+
+        if(!std::equal(std::begin(reserved_address_prefix), std::end(reserved_address_prefix), static_cast<evmc::bytes_view>(addr).begin()))
+            return std::nullopt;
+        uint64_t reserved;
+        memcpy(&reserved, static_cast<evmc::bytes_view>(addr).data()+sizeof(reserved_address_prefix), sizeof(reserved));
+        return be64toh(reserved);
+    }
+
+    bool is_reserved_address(const evmc::address& addr) const {
+        return extract_reserved_address(addr) != std::nullopt;
+    }
+
+    bool account_exists(const evmc::address& addr) const noexcept override
+    {
+        if(eos_evm_version >= 1 && is_reserved_address(addr)) {
+            return true;
+        }
+        return evmc::MockedHost::account_exists(addr);
+    }
+};
+
 /// The "evm" test fixture with generic unit tests for EVMC-compatible VM implementations.
 class evm : public testing::TestWithParam<evmc::VM*>
 {
@@ -61,7 +90,7 @@ protected:
     /// The total amount of gas used during execution.
     int64_t gas_used = 0;
 
-    evmc::MockedHost host;
+    TestHost host;
 
     evm() noexcept : vm{*GetParam()} {}
 
@@ -77,6 +106,8 @@ protected:
     /// The `gas_used` field  will be updated accordingly.
     void execute(int64_t gas, const bytecode& code, bytes_view input = {}) noexcept
     {
+        host.eos_evm_version = eos_evm_version;
+
         msg.input_data = input.data();
         msg.input_size = input.size();
         msg.gas = gas;
@@ -91,7 +122,6 @@ protected:
             evmone::ExecutionState state;
             state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params);
             state.eos_evm_version=eos_evm_version;
-
             auto& evm_ = *static_cast<evmone::VM*>(vm.get_raw_pointer());
             auto analysis = evmone::baseline::analyze(rev, code);
             result = evmc::Result{evmone::baseline::execute(evm_, gas, state, analysis)};
@@ -99,7 +129,6 @@ protected:
             evmone::advanced::AdvancedExecutionState state;
             state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params);
             state.eos_evm_version=eos_evm_version;
-
             evmone::advanced::AdvancedCodeAnalysis analysis;
             const bytes_view container = {code.data(), code.size()};
             if (is_eof_container(container)) {
