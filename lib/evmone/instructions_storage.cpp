@@ -123,9 +123,24 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     const auto& storage_cost = state.eos_evm_version > 0 ? state.gas_params.storage_cost : sstore_costs[state.rev];
     auto [gas_cost_warm, gas_refund] = storage_cost[status];
     const auto gas_cost = gas_cost_warm + gas_cost_cold;
-    if ((gas_left -= gas_cost) < 0)
-        return {EVMC_OUT_OF_GAS, gas_left};
-    state.gas_refund += gas_refund;
+    if (state.eos_evm_version > 2) {
+        int64_t gas_left_with_refunds = gas_left + state.gas_refund + gas_refund;
+        if ((gas_left_with_refunds -= gas_cost) < 0)
+            return {EVMC_OUT_OF_GAS, gas_left - gas_cost};
+        if (gas_left_with_refunds <= gas_left) {
+            gas_left = gas_left_with_refunds;
+            state.gas_refund = 0;
+        }
+        else {
+            state.gas_refund = gas_left_with_refunds - gas_left;
+        }
+    }
+    else {
+        if ((gas_left -= gas_cost) < 0)
+            return {EVMC_OUT_OF_GAS, gas_left};
+        state.gas_refund += gas_refund;
+    }
+    
     return {EVMC_SUCCESS, gas_left};
 }
 }  // namespace evmone::instr::core
