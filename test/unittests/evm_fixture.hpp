@@ -136,7 +136,7 @@ protected:
                     const auto eof1_header = read_valid_eof1_header(container);
                     analysis = evmone::advanced::analyze(rev, eof1_header.get_code(container, 0), state);
                 } else {
-                    result = evmc::Result{evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, nullptr, 0)};
+                    result = evmc::Result{evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, 0, 0, nullptr, 0)};
                     return;
                 }
             } else {

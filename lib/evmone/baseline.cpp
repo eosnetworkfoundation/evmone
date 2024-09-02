@@ -109,7 +109,7 @@ namespace
 ///          or EVMC_SUCCESS if everything is fine.
 template <Opcode Op>
 inline evmc_status_code check_requirements(const CostTable& cost_table, int64_t& gas_left,
-    const uint256* stack_top, const uint256* stack_bottom, const ExecutionState& state) noexcept
+    const uint256* stack_top, const uint256* stack_bottom, ExecutionState& state) noexcept
 {
     static_assert(
         !instr::has_const_gas_cost(Op) || instr::gas_costs[EVMC_FRONTIER][Op] != instr::undefined,
@@ -149,6 +149,7 @@ inline evmc_status_code check_requirements(const CostTable& cost_table, int64_t&
         }
     }
 
+    gas_cost = state.apply_gas_refund(gas_cost);
     if (INTX_UNLIKELY((gas_left -= gas_cost) < 0))
         return EVMC_OUT_OF_GAS;
 
@@ -357,8 +358,11 @@ evmc_result execute(
     const auto gas_left = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? gas : 0;
     const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_refund : 0;
 
+    const auto storage_gas_consumed = state.storage_gas_consumed;
+    const auto storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.storage_gas_refund : 0;
+
     assert(state.output_size != 0 || state.output_offset == 0);
-    const auto result = evmc::make_result(state.status, gas_left, gas_refund,
+    const auto result = evmc::make_result(state.status, gas_left, gas_refund, storage_gas_consumed, storage_gas_refund,
         state.output_size != 0 ? &state.memory[state.output_offset] : nullptr, state.output_size);
 
     if (INTX_UNLIKELY(tracer != nullptr))

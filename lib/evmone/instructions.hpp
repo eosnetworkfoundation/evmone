@@ -71,26 +71,26 @@ inline constexpr int64_t num_words(uint64_t size_in_bytes) noexcept
 ///
 /// TODO: This function should be moved to Memory class.
 [[gnu::noinline]] inline int64_t grow_memory(
-    int64_t gas_left, Memory& memory, uint64_t new_size) noexcept
+    int64_t gas_left, ExecutionState& state, uint64_t new_size) noexcept
 {
     // This implementation recomputes memory.size(). This value is already known to the caller
     // and can be passed as a parameter, but this make no difference to the performance.
 
     const auto new_words = num_words(new_size);
-    const auto current_words = static_cast<int64_t>(memory.size() / word_size);
+    const auto current_words = static_cast<int64_t>(state.memory.size() / word_size);
     const auto new_cost = 3 * new_words + new_words * new_words / 512;
     const auto current_cost = 3 * current_words + current_words * current_words / 512;
-    const auto cost = new_cost - current_cost;
+    const auto cost = state.apply_gas_refund(new_cost - current_cost);
 
     gas_left -= cost;
     if (gas_left >= 0) [[likely]]
-        memory.grow(static_cast<size_t>(new_words * word_size));
+        state.memory.grow(static_cast<size_t>(new_words * word_size));
     return gas_left;
 }
 
 /// Check memory requirements of a reasonable size.
 inline bool check_memory(
-    int64_t& gas_left, Memory& memory, const uint256& offset, uint64_t size) noexcept
+    int64_t& gas_left, ExecutionState& state, const uint256& offset, uint64_t size) noexcept
 {
     // TODO: This should be done in intx.
     // There is "branchless" variant of this using | instead of ||, but benchmarks difference
@@ -99,15 +99,15 @@ inline bool check_memory(
         return false;
 
     const auto new_size = static_cast<uint64_t>(offset) + size;
-    if (new_size > memory.size())
-        gas_left = grow_memory(gas_left, memory, new_size);
+    if (new_size > state.memory.size())
+        gas_left = grow_memory(gas_left, state, new_size);
 
     return gas_left >= 0;  // Always true for no-grow case.
 }
 
 /// Check memory requirements for "copy" instructions.
 inline bool check_memory(
-    int64_t& gas_left, Memory& memory, const uint256& offset, const uint256& size) noexcept
+    int64_t& gas_left, ExecutionState& state, const uint256& offset, const uint256& size) noexcept
 {
     if (size == 0)  // Copy of size 0 is always valid (even if offset is huge).
         return true;
@@ -118,7 +118,7 @@ inline bool check_memory(
     if (((size[3] | size[2] | size[1]) != 0) || (size[0] > max_buffer_size))
         return false;
 
-    return check_memory(gas_left, memory, offset, static_cast<uint64_t>(size));
+    return check_memory(gas_left, state, offset, static_cast<uint64_t>(size));
 }
 
 namespace instr::core
@@ -208,7 +208,7 @@ inline Result exp(StackTop stack, int64_t gas_left, ExecutionState& state) noexc
     const auto exponent_significant_bytes =
         static_cast<int>(intx::count_significant_bytes(exponent));
     const auto exponent_cost = state.rev >= EVMC_SPURIOUS_DRAGON ? 50 : 10;
-    const auto additional_cost = exponent_significant_bytes * exponent_cost;
+    const auto additional_cost = state.apply_gas_refund(exponent_significant_bytes * exponent_cost);
     if ((gas_left -= additional_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -345,13 +345,13 @@ inline Result keccak256(StackTop stack, int64_t gas_left, ExecutionState& state)
     const auto& index = stack.pop();
     auto& size = stack.top();
 
-    if (!check_memory(gas_left, state.memory, index, size))
+    if (!check_memory(gas_left, state, index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto i = static_cast<size_t>(index);
     const auto s = static_cast<size_t>(size);
     const auto w = num_words(s);
-    const auto cost = w * 6;
+    const auto cost = state.apply_gas_refund(w * 6);
     if ((gas_left -= cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -373,7 +373,8 @@ inline Result balance(StackTop stack, int64_t gas_left, ExecutionState& state) n
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
+        int64_t additional_cold_account_access_cost_rev = state.apply_gas_refund(instr::additional_cold_account_access_cost);
+        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -426,7 +427,7 @@ inline Result calldatacopy(StackTop stack, int64_t gas_left, ExecutionState& sta
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state.memory, mem_index, size))
+    if (!check_memory(gas_left, state, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     auto dst = static_cast<size_t>(mem_index);
@@ -435,7 +436,7 @@ inline Result calldatacopy(StackTop stack, int64_t gas_left, ExecutionState& sta
     auto s = static_cast<size_t>(size);
     auto copy_size = std::min(s, state.msg->input_size - src);
 
-    const auto copy_cost = num_words(s) * 3;
+    const auto copy_cost = state.apply_gas_refund(num_words(s) * 3);
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -461,7 +462,7 @@ inline Result codecopy(StackTop stack, int64_t gas_left, ExecutionState& state) 
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state.memory, mem_index, size))
+    if (!check_memory(gas_left, state, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto code_size = state.original_code.size();
@@ -470,7 +471,7 @@ inline Result codecopy(StackTop stack, int64_t gas_left, ExecutionState& state) 
     const auto s = static_cast<size_t>(size);
     const auto copy_size = std::min(s, code_size - src);
 
-    const auto copy_cost = num_words(s) * 3;
+    const auto copy_cost = state.apply_gas_refund(num_words(s) * 3);
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -502,7 +503,8 @@ inline Result extcodesize(StackTop stack, int64_t gas_left, ExecutionState& stat
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
+        int64_t additional_cold_account_access_cost_rev = state.apply_gas_refund(instr::additional_cold_account_access_cost);
+        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -517,17 +519,18 @@ inline Result extcodecopy(StackTop stack, int64_t gas_left, ExecutionState& stat
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state.memory, mem_index, size))
+    if (!check_memory(gas_left, state, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto s = static_cast<size_t>(size);
-    const auto copy_cost = num_words(s) * 3;
+    const auto copy_cost = state.apply_gas_refund(num_words(s) * 3);
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
+        int64_t additional_cold_account_access_cost_rev = state.apply_gas_refund(instr::additional_cold_account_access_cost);
+        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -555,7 +558,7 @@ inline Result returndatacopy(StackTop stack, int64_t gas_left, ExecutionState& s
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state.memory, mem_index, size))
+    if (!check_memory(gas_left, state, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     auto dst = static_cast<size_t>(mem_index);
@@ -568,7 +571,7 @@ inline Result returndatacopy(StackTop stack, int64_t gas_left, ExecutionState& s
     if (src + s > state.return_data.size())
         return {EVMC_INVALID_MEMORY_ACCESS, gas_left};
 
-    const auto copy_cost = num_words(s) * 3;
+    const auto copy_cost = state.apply_gas_refund(num_words(s) * 3);
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -585,7 +588,8 @@ inline Result extcodehash(StackTop stack, int64_t gas_left, ExecutionState& stat
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
+        int64_t additional_cold_account_access_cost_rev = state.apply_gas_refund(instr::additional_cold_account_access_cost);
+        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -648,7 +652,7 @@ inline Result mload(StackTop stack, int64_t gas_left, ExecutionState& state) noe
 {
     auto& index = stack.top();
 
-    if (!check_memory(gas_left, state.memory, index, 32))
+    if (!check_memory(gas_left, state, index, 32))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     index = intx::be::unsafe::load<uint256>(&state.memory[static_cast<size_t>(index)]);
@@ -660,7 +664,7 @@ inline Result mstore(StackTop stack, int64_t gas_left, ExecutionState& state) no
     const auto& index = stack.pop();
     const auto& value = stack.pop();
 
-    if (!check_memory(gas_left, state.memory, index, 32))
+    if (!check_memory(gas_left, state, index, 32))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     intx::be::unsafe::store(&state.memory[static_cast<size_t>(index)], value);
@@ -672,7 +676,7 @@ inline Result mstore8(StackTop stack, int64_t gas_left, ExecutionState& state) n
     const auto& index = stack.pop();
     const auto& value = stack.pop();
 
-    if (!check_memory(gas_left, state.memory, index, 1))
+    if (!check_memory(gas_left, state, index, 1))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     state.memory[static_cast<size_t>(index)] = static_cast<uint8_t>(value);
@@ -911,13 +915,13 @@ inline Result log(StackTop stack, int64_t gas_left, ExecutionState& state) noexc
     const auto& offset = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state.memory, offset, size))
+    if (!check_memory(gas_left, state, offset, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto o = static_cast<size_t>(offset);
     const auto s = static_cast<size_t>(size);
 
-    const auto cost = int64_t(s) * 8;
+    const auto cost = state.apply_gas_refund(int64_t(s) * 8);
     if ((gas_left -= cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -980,7 +984,7 @@ inline TermResult return_impl(StackTop stack, int64_t gas_left, ExecutionState& 
     const auto& offset = stack[0];
     const auto& size = stack[1];
 
-    if (!check_memory(gas_left, state.memory, offset, size))
+    if (!check_memory(gas_left, state, offset, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     state.output_size = static_cast<size_t>(size);
@@ -1000,7 +1004,8 @@ inline TermResult selfdestruct(StackTop stack, int64_t gas_left, ExecutionState&
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(beneficiary) == EVMC_ACCESS_COLD)
     {
-        if ((gas_left -= instr::cold_account_access_cost) < 0)
+        int64_t cold_account_access_cost_rev = state.apply_gas_refund(instr::cold_account_access_cost);
+        if ((gas_left -= cold_account_access_cost_rev) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -1012,7 +1017,7 @@ inline TermResult selfdestruct(StackTop stack, int64_t gas_left, ExecutionState&
             // sending value to a non-existing account.
             if (!state.host.account_exists(beneficiary))
             {
-                int64_t cost = state.eos_evm_version > 0 ? static_cast<int64_t>(state.gas_params.G_newaccount) : 25000;
+                int64_t cost = state.apply_gas_refund(state.eos_evm_version > 0 ? static_cast<int64_t>(state.gas_params.G_newaccount) : 25000);
                 if ((gas_left -= cost) < 0)
                     return {EVMC_OUT_OF_GAS, gas_left};
             }

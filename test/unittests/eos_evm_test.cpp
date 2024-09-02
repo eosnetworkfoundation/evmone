@@ -13,7 +13,8 @@ using evmone::test::evm;
 evmc_revision evm_version_to_revision[]={
     EVMC_ISTANBUL, //eos_evm_version=0
     EVMC_SHANGHAI, //eos_evm_version=1
-    EVMC_SHANGHAI  //eos_evm_version=2
+    EVMC_SHANGHAI, //eos_evm_version=2
+    EVMC_SHANGHAI  //eos_evm_version=3
 };
 
 TEST_P(evm, sstore_cost_eos_evm)
@@ -27,9 +28,20 @@ TEST_P(evm, sstore_cost_eos_evm)
     static constexpr int64_t b = 6;  // Cost of other instructions.
 
     const auto test = [this](const evmc::bytes32& original, const evmc::bytes32& current,
-                          const evmc::bytes32& value, evmc_storage_status s) {
-        auto expected_gas_used = b + gas_params.storage_cost[s].gas_cost;
-        auto expected_gas_refund = gas_params.storage_cost[s].gas_refund;
+                          const evmc::bytes32& value, evmc_storage_status s, uint64_t version, int64_t storage_gas_consumed, int64_t storage_gas_refund) {
+        auto storage_cost = gas_params.get_storage_cost(version);
+
+        int64_t expected_gas_used{0};
+        int64_t expected_gas_refund{0};
+
+        if(version >= 3) {
+            expected_gas_used = b + std::max(storage_cost[s].gas_cost,0l) + std::max(storage_cost[s].gas_refund, 0l);
+            expected_gas_refund = -std::min(storage_cost[s].gas_cost, 0l);
+        } else {
+            expected_gas_used = b + storage_cost[s].gas_cost;
+            expected_gas_refund = storage_cost[s].gas_refund;
+        }
+
         auto& storage_entry = host.accounts[msg.recipient].storage[key];
         storage_entry.original = original;
         storage_entry.current = current;
@@ -38,27 +50,50 @@ TEST_P(evm, sstore_cost_eos_evm)
         EXPECT_EQ(storage_entry.current, value);
         EXPECT_GAS_USED(EVMC_SUCCESS, expected_gas_used);
         EXPECT_EQ(result.gas_refund, expected_gas_refund);
+        EXPECT_EQ(result.storage_gas_consumed, storage_gas_consumed);
+        EXPECT_EQ(result.storage_gas_refund, storage_gas_refund);
     };
 
     eos_evm_version = 1;
     rev = evm_version_to_revision[eos_evm_version];
 
-    test(O, O, O, EVMC_STORAGE_ASSIGNED );          // assigned
-    test(X, O, O, EVMC_STORAGE_ASSIGNED );
-    test(O, Y, Y, EVMC_STORAGE_ASSIGNED );
-    test(X, Y, Y, EVMC_STORAGE_ASSIGNED );
-    test(Y, Y, Y, EVMC_STORAGE_ASSIGNED );
-    test(O, Y, Z, EVMC_STORAGE_ASSIGNED );
-    test(X, Y, Z, EVMC_STORAGE_ASSIGNED );
+    test(O, O, O, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);          // assigned
+    test(X, O, O, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(O, Y, Y, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(X, Y, Y, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(Y, Y, Y, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(O, Y, Z, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(X, Y, Z, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
 
-    test(O, O, Z, EVMC_STORAGE_ADDED );             // added
-    test(X, X, O, EVMC_STORAGE_DELETED );           // deleted
-    test(X, X, Z, EVMC_STORAGE_MODIFIED );          // modified
-    test(X, O, Z, EVMC_STORAGE_DELETED_ADDED );     // deleted added
-    test(X, Y, O, EVMC_STORAGE_MODIFIED_DELETED );  // modified deleted
-    test(X, O, X, EVMC_STORAGE_DELETED_RESTORED );  // deleted restored
-    test(O, Y, O, EVMC_STORAGE_ADDED_DELETED );     // added deleted
-    test(X, Y, X, EVMC_STORAGE_MODIFIED_RESTORED ); // modified restored
+    test(O, O, Z, EVMC_STORAGE_ADDED, eos_evm_version, 0l, 0l);             // added
+    test(X, X, O, EVMC_STORAGE_DELETED, eos_evm_version, 0l, 0l);           // deleted
+    test(X, X, Z, EVMC_STORAGE_MODIFIED, eos_evm_version, 0l, 0l);          // modified
+    test(X, O, Z, EVMC_STORAGE_DELETED_ADDED, eos_evm_version, 0l, 0l);     // deleted added
+    test(X, Y, O, EVMC_STORAGE_MODIFIED_DELETED, eos_evm_version, 0l, 0l);  // modified deleted
+    test(X, O, X, EVMC_STORAGE_DELETED_RESTORED, eos_evm_version, 0l, 0l);  // deleted restored
+    test(O, Y, O, EVMC_STORAGE_ADDED_DELETED, eos_evm_version, 0l, 0l);     // added deleted
+    test(X, Y, X, EVMC_STORAGE_MODIFIED_RESTORED, eos_evm_version, 0l, 0l); // modified restored
+
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+    gas_params = evmone::gas_parameters{};
+
+    test(O, O, O, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);          // assigned
+    test(X, O, O, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(O, Y, Y, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(X, Y, Y, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(Y, Y, Y, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(O, Y, Z, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+    test(X, Y, Z, EVMC_STORAGE_ASSIGNED, eos_evm_version, 0l, 0l);
+
+    test(O, O, Z, EVMC_STORAGE_ADDED, eos_evm_version, 17100l, 0l);             // added
+    test(X, X, O, EVMC_STORAGE_DELETED, eos_evm_version, 0l, 17100l);           // deleted
+    test(X, X, Z, EVMC_STORAGE_MODIFIED, eos_evm_version, 0l, 0l);              // modified
+    test(X, O, Z, EVMC_STORAGE_DELETED_ADDED, eos_evm_version, 17100l, 0l);     // deleted added
+    test(X, Y, O, EVMC_STORAGE_MODIFIED_DELETED, eos_evm_version, 0l, 17100);   // modified deleted
+    test(X, O, X, EVMC_STORAGE_DELETED_RESTORED, eos_evm_version, 17100l, 0l);  // deleted restored
+    test(O, Y, O, EVMC_STORAGE_ADDED_DELETED, eos_evm_version, 0l, 17100l);     // added deleted
+    test(X, Y, X, EVMC_STORAGE_MODIFIED_RESTORED, eos_evm_version, 0l, 0l);     // modified restored
 }
 
 TEST_P(evm, call_new_account_creation_cost_eos_evm)

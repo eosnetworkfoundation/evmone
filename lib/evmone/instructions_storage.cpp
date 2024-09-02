@@ -91,8 +91,7 @@ Result sload(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     {
         // The warm storage access cost is already applied (from the cost table).
         // Here we need to apply additional cold storage access cost.
-        constexpr auto additional_cold_sload_cost =
-            instr::cold_sload_cost - instr::warm_storage_read_cost;
+        int64_t additional_cold_sload_cost = state.apply_gas_refund(instr::cold_sload_cost - instr::warm_storage_read_cost);
         if ((gas_left -= additional_cold_sload_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
@@ -107,6 +106,7 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     if (state.in_static_mode())
         return {EVMC_STATIC_MODE_VIOLATION, gas_left};
 
+    //TODO: should we use state.total_gas_left(gas_left) instead of gas_left?
     if (state.rev >= EVMC_ISTANBUL && gas_left <= 2300)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -119,13 +119,27 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
             instr::cold_sload_cost :
             0;
     const auto status = state.host.set_storage(state.msg->recipient, key, value);
+    const auto& storage_cost = state.eos_evm_version > 0 ? state.gas_params.get_storage_cost(state.eos_evm_version) : sstore_costs[state.rev];
 
-    const auto& storage_cost = state.eos_evm_version > 0 ? state.gas_params.storage_cost : sstore_costs[state.rev];
-    auto [gas_cost_warm, gas_refund] = storage_cost[status];
-    const auto gas_cost = gas_cost_warm + gas_cost_cold;
-    if ((gas_left -= gas_cost) < 0)
-        return {EVMC_OUT_OF_GAS, gas_left};
-    state.gas_refund += gas_refund;
+    if( state.eos_evm_version >= 3) {
+        auto [cpu_cost_or_refund, storage_cost_or_refund] = storage_cost[status];
+
+        const auto gas_consumed_storage_delta = state.apply_storage_gas_refund(storage_cost_or_refund);
+        const auto gas_consumed_cpu_delta = state.apply_gas_refund(cpu_cost_or_refund + gas_cost_cold);
+
+        state.storage_gas_consumed += gas_consumed_storage_delta;
+
+        const auto gas_consumed_delta = gas_consumed_storage_delta + gas_consumed_cpu_delta;
+        if ((gas_left -= gas_consumed_delta) < 0)
+            return {EVMC_OUT_OF_GAS, gas_left};
+    } else {
+        auto [gas_cost_warm, gas_refund] = storage_cost[status];
+        const auto gas_cost = gas_cost_warm + gas_cost_cold;
+        if ((gas_left -= gas_cost) < 0)
+            return {EVMC_OUT_OF_GAS, gas_left};
+        state.gas_refund += gas_refund;
+    }
+
     return {EVMC_SUCCESS, gas_left};
 }
 }  // namespace evmone::instr::core

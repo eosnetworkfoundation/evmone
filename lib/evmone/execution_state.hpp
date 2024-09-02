@@ -7,6 +7,7 @@
 #include <intx/intx.hpp>
 #include <string>
 #include <vector>
+#include <optional>
 
 #include "instructions_traits.hpp"
 
@@ -127,36 +128,16 @@ public:
 
 struct gas_parameters {
 
-    gas_parameters() {
-        generate_storage_cost_table();
-    }
+    using storage_cost_t = std::array<StorageStoreCost, EVMC_STORAGE_MODIFIED_RESTORED + 1>;
+
+    gas_parameters(){}
 
     gas_parameters(uint64_t txnewaccount, uint64_t newaccount, uint64_t txcreate, uint64_t codedeposit, uint64_t sset) :
         G_txnewaccount{txnewaccount},
         G_newaccount{newaccount},
         G_txcreate{txcreate},
         G_codedeposit{codedeposit},
-        G_sset{sset}{
-            generate_storage_cost_table();
-    }
-
-    void generate_storage_cost_table() {
-        int64_t warm_access = instr::warm_storage_read_cost;
-        int64_t set         = static_cast<int64_t>(G_sset);
-        int64_t reset       = 5000 - instr::cold_sload_cost;
-        int64_t clear       = 4800;
-
-        auto& st = storage_cost;
-        st[EVMC_STORAGE_ASSIGNED]          = {warm_access, 0};
-        st[EVMC_STORAGE_ADDED]             = {set, 0};
-        st[EVMC_STORAGE_DELETED]           = {reset, clear};
-        st[EVMC_STORAGE_MODIFIED]          = {reset, 0};
-        st[EVMC_STORAGE_DELETED_ADDED]     = {warm_access,-clear};
-        st[EVMC_STORAGE_MODIFIED_DELETED]  = {warm_access, clear};
-        st[EVMC_STORAGE_DELETED_RESTORED]  = {warm_access, reset - warm_access - clear};
-        st[EVMC_STORAGE_ADDED_DELETED]     = {warm_access, set - warm_access};
-        st[EVMC_STORAGE_MODIFIED_RESTORED] = {warm_access, reset - warm_access};
-    }
+        G_sset{sset}{}
 
     uint64_t G_txnewaccount = 0;
     uint64_t G_newaccount = 25000;
@@ -164,7 +145,49 @@ struct gas_parameters {
     uint64_t G_codedeposit = 200;
     uint64_t G_sset = 20000;
 
-    std::array<StorageStoreCost, EVMC_STORAGE_MODIFIED_RESTORED + 1> storage_cost;
+    const storage_cost_t& get_storage_cost(uint64_t version) {
+        if(!storage_cost.has_value()) {
+            storage_cost = generate_storage_cost_table(version);
+        }
+        return *storage_cost;
+    }
+
+private:
+    storage_cost_t generate_storage_cost_table(uint64_t version) {
+        int64_t warm_access = instr::warm_storage_read_cost;
+        int64_t set         = static_cast<int64_t>(G_sset);
+        int64_t reset       = 5000 - instr::cold_sload_cost;
+        int64_t clear       = 4800;
+
+        storage_cost_t st;
+        if( version >= 3) {
+            int64_t cpu_gas_to_change_slot  = reset - warm_access; //cpu cost of adding or removing or mutating a slot in the db
+            int64_t storage_gas_to_add_slot = set - reset; //storage cost of adding a new slot into the db
+
+            st[EVMC_STORAGE_ASSIGNED]          = {warm_access                         ,                        0};
+            st[EVMC_STORAGE_ADDED]             = {warm_access + cpu_gas_to_change_slot,  storage_gas_to_add_slot};
+            st[EVMC_STORAGE_DELETED]           = {warm_access + cpu_gas_to_change_slot, -storage_gas_to_add_slot};
+            st[EVMC_STORAGE_MODIFIED]          = {warm_access + cpu_gas_to_change_slot,                        0};
+            st[EVMC_STORAGE_DELETED_ADDED]     = {warm_access                         ,  storage_gas_to_add_slot};
+            st[EVMC_STORAGE_MODIFIED_DELETED]  = {warm_access                         , -storage_gas_to_add_slot};
+            st[EVMC_STORAGE_DELETED_RESTORED]  = {warm_access - cpu_gas_to_change_slot,  storage_gas_to_add_slot};
+            st[EVMC_STORAGE_ADDED_DELETED]     = {warm_access - cpu_gas_to_change_slot, -storage_gas_to_add_slot};
+            st[EVMC_STORAGE_MODIFIED_RESTORED] = {warm_access - cpu_gas_to_change_slot,                        0};
+        } else {
+            st[EVMC_STORAGE_ASSIGNED]          = {warm_access, 0};
+            st[EVMC_STORAGE_ADDED]             = {set, 0};
+            st[EVMC_STORAGE_DELETED]           = {reset, clear};
+            st[EVMC_STORAGE_MODIFIED]          = {reset, 0};
+            st[EVMC_STORAGE_DELETED_ADDED]     = {warm_access,-clear};
+            st[EVMC_STORAGE_MODIFIED_DELETED]  = {warm_access, clear};
+            st[EVMC_STORAGE_DELETED_RESTORED]  = {warm_access, reset - warm_access - clear};
+            st[EVMC_STORAGE_ADDED_DELETED]     = {warm_access, set - warm_access};
+            st[EVMC_STORAGE_MODIFIED_RESTORED] = {warm_access, reset - warm_access};
+        }
+        return st;
+    }
+
+    std::optional<storage_cost_t> storage_cost;
 };
 
 /// Generic execution state for generic instructions implementations.
@@ -172,7 +195,28 @@ struct gas_parameters {
 class ExecutionState
 {
 public:
+    int64_t apply_gas_refund(int64_t gas_cost) {
+        if (eos_evm_version >= 3) {
+            int64_t d = gas_cost - gas_refund;
+            gas_refund = std::max(-d, 0l);
+            return std::max(d, 0l);
+        }
+        return gas_cost;
+    }
+
+    int64_t apply_storage_gas_refund(int64_t gas_cost){
+        if (eos_evm_version >= 3) {
+            int64_t d = gas_cost - storage_gas_refund;
+            storage_gas_refund = std::max(-d, 0l);
+            return std::max(d, 0l);
+        }
+        return gas_cost;
+    }
+
     int64_t gas_refund = 0;
+    int64_t storage_gas_consumed = 0;
+    int64_t storage_gas_refund = 0;
+
     Memory memory;
     const evmc_message* msg = nullptr;
     evmc::HostContext host;
@@ -235,6 +279,8 @@ public:
         output_size = 0;
         m_tx = {};
         gas_params = _gas_params;
+        storage_gas_consumed = 0;
+        storage_gas_refund = 0;
     }
 
     [[nodiscard]] bool in_static_mode() const { return (msg->flags & EVMC_STATIC) != 0; }

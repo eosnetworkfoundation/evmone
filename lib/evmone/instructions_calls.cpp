@@ -26,14 +26,15 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(dst) == EVMC_ACCESS_COLD)
     {
-        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
+        int64_t additional_cold_account_access_cost_rev = state.apply_gas_refund(instr::additional_cold_account_access_cost);
+        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
-    if (!check_memory(gas_left, state.memory, input_offset_u256, input_size_u256))
+    if (!check_memory(gas_left, state, input_offset_u256, input_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
-    if (!check_memory(gas_left, state.memory, output_offset_u256, output_size_u256))
+    if (!check_memory(gas_left, state, output_offset_u256, output_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto input_offset = static_cast<size_t>(input_offset_u256);
@@ -76,6 +77,7 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         }
     }
 
+    cost = state.apply_gas_refund(cost);
     if ((gas_left -= cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -110,6 +112,9 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
     const auto gas_used = msg.gas - result.gas_left;
     gas_left -= gas_used;
     state.gas_refund += result.gas_refund;
+    state.storage_gas_refund += result.storage_gas_refund;
+    state.storage_gas_consumed += result.storage_gas_consumed;
+
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -139,7 +144,7 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
     stack.push(0);  // Assume failure.
     state.return_data.clear();
 
-    if (!check_memory(gas_left, state.memory, init_code_offset_u256, init_code_size_u256))
+    if (!check_memory(gas_left, state, init_code_offset_u256, init_code_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto init_code_offset = static_cast<size_t>(init_code_offset_u256);
@@ -149,7 +154,7 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto init_code_word_cost = 6 * (Op == OP_CREATE2) + 2 * (state.rev >= EVMC_SHANGHAI);
-    const auto init_code_cost = num_words(init_code_size) * init_code_word_cost;
+    const auto init_code_cost = state.apply_gas_refund(num_words(init_code_size) * init_code_word_cost);
     if ((gas_left -= init_code_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -179,6 +184,8 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
     const auto result = state.host.call(msg);
     gas_left -= msg.gas - result.gas_left;
     state.gas_refund += result.gas_refund;
+    state.storage_gas_consumed += result.storage_gas_consumed;
+    state.storage_gas_refund += result.storage_gas_refund;
 
     state.return_data.assign(result.output_data, result.output_size);
     if (result.status_code == EVMC_SUCCESS)
