@@ -357,6 +357,8 @@ inline Result keccak256(StackTop stack, int64_t gas_left, ExecutionState& state)
 
     auto data = s != 0 ? &state.memory[i] : nullptr;
     size = intx::be::load<uint256>(ethash::keccak256(data, s));
+
+    printf("keccak256 gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -378,6 +380,8 @@ inline Result balance(StackTop stack, int64_t gas_left, ExecutionState& state) n
     }
 
     x = intx::be::load<uint256>(state.host.get_balance(addr));
+
+    printf("balance gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -445,6 +449,7 @@ inline Result calldatacopy(StackTop stack, int64_t gas_left, ExecutionState& sta
     if (s - copy_size > 0)
         std::memset(&state.memory[dst + copy_size], 0, s - copy_size);
 
+    printf("calldatacopy gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -481,6 +486,7 @@ inline Result codecopy(StackTop stack, int64_t gas_left, ExecutionState& state) 
     if (s - copy_size > 0)
         std::memset(&state.memory[dst + copy_size], 0, s - copy_size);
 
+    printf("codecopy gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -507,6 +513,8 @@ inline Result extcodesize(StackTop stack, int64_t gas_left, ExecutionState& stat
     }
 
     x = state.host.get_code_size(addr);
+
+    printf("extcodesize gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -575,6 +583,7 @@ inline Result returndatacopy(StackTop stack, int64_t gas_left, ExecutionState& s
     if (s > 0)
         std::memcpy(&state.memory[dst], &state.return_data[src], s);
 
+    printf("returndatacopy gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -590,6 +599,8 @@ inline Result extcodehash(StackTop stack, int64_t gas_left, ExecutionState& stat
     }
 
     x = intx::be::load<uint256>(state.host.get_code_hash(addr));
+
+    printf("extcodehash gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -758,6 +769,8 @@ inline void msize(StackTop stack, ExecutionState& state) noexcept
 inline Result gas(StackTop stack, int64_t gas_left, ExecutionState& /*state*/) noexcept
 {
     stack.push(gas_left);
+
+    printf("gas gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -927,6 +940,8 @@ inline Result log(StackTop stack, int64_t gas_left, ExecutionState& state) noexc
 
     const auto data = s != 0 ? &state.memory[o] : nullptr;
     state.host.emit_log(state.msg->recipient, data, s, topics.data(), NumTopics);
+
+    printf("log gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -986,6 +1001,8 @@ inline TermResult return_impl(StackTop stack, int64_t gas_left, ExecutionState& 
     state.output_size = static_cast<size_t>(size);
     if (state.output_size != 0)
         state.output_offset = static_cast<size_t>(offset);
+
+    printf("return_impl gas_left %lld, ", (long long int)gas_left);
     return {StatusCode, gas_left};
 }
 inline constexpr auto return_ = return_impl<EVMC_SUCCESS>;

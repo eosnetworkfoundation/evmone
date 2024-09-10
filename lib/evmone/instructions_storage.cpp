@@ -99,6 +99,7 @@ Result sload(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
 
     x = intx::be::load<uint256>(state.host.get_storage(state.msg->recipient, key));
 
+    printf("sload gas_left %lld, ", (long long int)gas_left);
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -126,6 +127,8 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     if ((gas_left -= gas_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
     state.gas_refund += gas_refund;
+
+    printf("sstore gas_left %lld refund %lld, ", (long long int)gas_left, (long long int)state.gas_refund);
     return {EVMC_SUCCESS, gas_left};
 }
 }  // namespace evmone::instr::core

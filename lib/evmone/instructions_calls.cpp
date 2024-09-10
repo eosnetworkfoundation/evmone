@@ -9,6 +9,7 @@ namespace evmone::instr::core
 template <Opcode Op>
 Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
 {
+    int64_t old_gas_left = gas_left;
     static_assert(
         Op == OP_CALL || Op == OP_CALLCODE || Op == OP_DELEGATECALL || Op == OP_STATICCALL);
 
@@ -110,6 +111,8 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
     const auto gas_used = msg.gas - result.gas_left;
     gas_left -= gas_used;
     state.gas_refund += result.gas_refund;
+
+    printf("call msg.gas %lld gas_left %lld->%lld refund %lld, ", (long long int)msg.gas, (long long int)old_gas_left, (long long int)gas_left, (long long int)state.gas_refund);
     return {EVMC_SUCCESS, gas_left};
 }
 
