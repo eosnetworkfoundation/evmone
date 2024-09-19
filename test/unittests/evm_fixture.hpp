@@ -120,29 +120,26 @@ protected:
 
         if(!is_advanced()) {
             evmone::ExecutionState state;
-            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params);
-            state.eos_evm_version=eos_evm_version;
+            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
             auto& evm_ = *static_cast<evmone::VM*>(vm.get_raw_pointer());
             auto analysis = evmone::baseline::analyze(rev, code);
             result = evmc::Result{evmone::baseline::execute(evm_, gas, state, analysis)};
         } else {
             evmone::advanced::AdvancedExecutionState state;
-            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params);
-            state.eos_evm_version=eos_evm_version;
+            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
             evmone::advanced::AdvancedCodeAnalysis analysis;
             const bytes_view container = {code.data(), code.size()};
             if (is_eof_container(container)) {
                 if (rev >= EVMC_CANCUN) {
                     const auto eof1_header = read_valid_eof1_header(container);
-                    analysis = evmone::advanced::analyze(rev, eof1_header.get_code(container, 0), state);
+                    analysis = evmone::advanced::analyze(rev, eof1_header.get_code(container, 0));
                 } else {
                     result = evmc::Result{evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, 0, 0, nullptr, 0)};
                     return;
                 }
             } else {
-                analysis = evmone::advanced::analyze(rev, container, state);
+                analysis = evmone::advanced::analyze(rev, container);
             }
-
             result = evmc::Result{evmone::advanced::execute(state, analysis)};
         }
         output = {result.output_data, result.output_size};

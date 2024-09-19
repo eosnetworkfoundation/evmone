@@ -91,7 +91,7 @@ Result sload(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     {
         // The warm storage access cost is already applied (from the cost table).
         // Here we need to apply additional cold storage access cost.
-        int64_t additional_cold_sload_cost = state.apply_gas_refund(instr::cold_sload_cost - instr::warm_storage_read_cost);
+        int64_t additional_cold_sload_cost = state.gas_state.apply_cpu_gas_delta(instr::cold_sload_cost - instr::warm_storage_read_cost);
         if ((gas_left -= additional_cold_sload_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
@@ -122,22 +122,22 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     const auto& storage_cost = state.eos_evm_version > 0 ? state.gas_params.get_storage_cost(state.eos_evm_version) : sstore_costs[state.rev];
 
     if( state.eos_evm_version >= 3) {
-        auto [cpu_cost_or_refund, storage_cost_or_refund] = storage_cost[status];
+        auto [cpu_gas_to_changle_slot_delta, storage_gas_delta] = storage_cost[status];
+        auto cpu_gas_to_consume = instr::warm_storage_read_cost + gas_cost_cold;
 
-        const auto gas_consumed_storage_delta = state.apply_storage_gas_refund(storage_cost_or_refund);
-        const auto gas_consumed_cpu_delta = state.apply_gas_refund(cpu_cost_or_refund + gas_cost_cold);
+        const auto storage_gas_consumed = state.gas_state.apply_storage_gas_delta(storage_gas_delta);
+        const auto cpu_gas_consumed = state.gas_state.apply_cpu_gas_delta(cpu_gas_to_consume);
+        const auto cpu_gas_to_change_slot_consumed = state.gas_state.apply_cpu_gas_to_change_slot_delta(cpu_gas_to_changle_slot_delta);
 
-        state.storage_gas_consumed += gas_consumed_storage_delta;
-
-        const auto gas_consumed_delta = gas_consumed_storage_delta + gas_consumed_cpu_delta;
-        if ((gas_left -= gas_consumed_delta) < 0)
+        const auto gas_cost = storage_gas_consumed + cpu_gas_consumed + cpu_gas_to_change_slot_consumed;
+        if ((gas_left -= gas_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     } else {
         auto [gas_cost_warm, gas_refund] = storage_cost[status];
         const auto gas_cost = gas_cost_warm + gas_cost_cold;
         if ((gas_left -= gas_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
-        state.gas_refund += gas_refund;
+        state.gas_state.add_cpu_gas_refund(gas_refund);
     }
 
     return {EVMC_SUCCESS, gas_left};

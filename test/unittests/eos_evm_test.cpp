@@ -35,7 +35,7 @@ TEST_P(evm, sstore_cost_eos_evm)
         int64_t expected_gas_refund{0};
 
         if(version >= 3) {
-            expected_gas_used = b + std::max(storage_cost[s].gas_cost,0l) + std::max(storage_cost[s].gas_refund, 0l);
+            expected_gas_used = b + std::max(storage_cost[s].gas_cost,0l) + std::max(storage_cost[s].gas_refund, 0l) + 100;
             expected_gas_refund = -std::min(storage_cost[s].gas_cost, 0l);
         } else {
             expected_gas_used = b + storage_cost[s].gas_cost;
@@ -132,6 +132,26 @@ TEST_P(evm, call_new_account_creation_cost_eos_evm)
     execute(code);
 
     EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(100+25005+9000+2500)+3+6+3+3+0);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 0);
+    EXPECT_EQ(result.storage_gas_refund, 0);
+    EXPECT_OUTPUT_INT(1);
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
+    EXPECT_EQ(host.recorded_calls.back().gas, 2300);
+
+    // Gas V3
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+    host.recorded_calls.clear();
+    host.recorded_account_accesses.clear();
+
+    execute(code);
+
+    EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(100+25005+9000+2500)+3+6+3+3+0);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 25005);
+    EXPECT_EQ(result.storage_gas_refund, 0);
     EXPECT_OUTPUT_INT(1);
     ASSERT_EQ(host.recorded_calls.size(), 1);
     EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
@@ -166,10 +186,6 @@ TEST_P(evm, call_reserved_address_cost_eos_evm)
 
         msg.recipient = msg_dst;
 
-        //----------------------------------------------
-        // Test account creation from inside a contract
-        //----------------------------------------------
-
         gas_params.G_newaccount   = 25005;
         gas_params.G_txnewaccount = 25006;
 
@@ -198,6 +214,12 @@ TEST_P(evm, call_reserved_address_cost_eos_evm)
     EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
     EXPECT_EQ(host.recorded_calls.back().gas, 2300);
 
+    call_reserved_address(3);
+    EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(100+0+9000+2500)+3+6+3+3+0);
+    EXPECT_OUTPUT_INT(1);
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
+    EXPECT_EQ(host.recorded_calls.back().gas, 2300);
 }
 
 TEST_P(evm, selfdestruct_eos_evm)
@@ -208,7 +230,6 @@ TEST_P(evm, selfdestruct_eos_evm)
     gas_params.G_newaccount = 25005;
 
     msg.recipient = 0x01_address;
-    const auto& selfdestructs = host.recorded_selfdestructs[msg.recipient];
     host.accounts[msg.recipient].set_balance(1024);
 
     // Bytecode created by `selfdestruct(0x02)`
@@ -218,10 +239,28 @@ TEST_P(evm, selfdestruct_eos_evm)
 
     execute(50000, selfdestruct(0x02));
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 0);
+    EXPECT_EQ(result.storage_gas_refund, 0);
     EXPECT_EQ(gas_used, 3+5000+25005);
-    ASSERT_EQ(selfdestructs.size(), 1);
-    EXPECT_EQ(selfdestructs.back(), 0x02_address);
+    ASSERT_EQ(host.recorded_selfdestructs[msg.recipient].size(), 1);
+    EXPECT_EQ(host.recorded_selfdestructs[msg.recipient].back(), 0x02_address);
 
+    // Gas V3
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+    host.recorded_calls.clear();
+    host.recorded_account_accesses.clear();
+    host.recorded_selfdestructs.clear();
+
+    execute(50000, selfdestruct(0x02));
+    EXPECT_EQ(result.status_code, EVMC_SUCCESS);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 25005);
+    EXPECT_EQ(result.storage_gas_refund, 0);
+    EXPECT_EQ(gas_used, 3+5000+25005);
+    ASSERT_EQ(host.recorded_selfdestructs[msg.recipient].size(), 1);
+    EXPECT_EQ(host.recorded_selfdestructs[msg.recipient].back(), 0x02_address);
 }
 
 TEST_P(evm, create_gas_cost_eos_evm)
@@ -249,8 +288,26 @@ TEST_P(evm, create_gas_cost_eos_evm)
 
     // Run the 4 instructions
     execute(50000, create());
-    
+
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 0);
+    EXPECT_EQ(result.storage_gas_refund, 0);
+    EXPECT_EQ(gas_used, 3+3+3+32005);
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().gas, 17705);
+
+    // Gas V3
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+    host.recorded_calls.clear();
+
+    execute(50000, create());
+
+    EXPECT_EQ(result.status_code, EVMC_SUCCESS);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 32005);
+    EXPECT_EQ(result.storage_gas_refund, 0);
     EXPECT_EQ(gas_used, 3+3+3+32005);
     ASSERT_EQ(host.recorded_calls.size(), 1);
     EXPECT_EQ(host.recorded_calls.back().gas, 17705);
@@ -283,9 +340,112 @@ TEST_P(evm, create2_gas_cost_eos_evm)
 
     // Run the 5 instructions
     execute(150000, code);
-    
+
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 0);
+    EXPECT_EQ(result.storage_gas_refund, 0);
     EXPECT_EQ(gas_used, 3+3+3+3+32005);
     ASSERT_EQ(host.recorded_calls.size(), 1);
     EXPECT_EQ(host.recorded_calls.back().gas, 116140);
+
+    // Gas V3
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+    host.recorded_calls.clear();
+
+    execute(150000, code);
+
+    EXPECT_EQ(result.status_code, EVMC_SUCCESS);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 32005);
+    EXPECT_EQ(result.storage_gas_refund, 0);
+    EXPECT_EQ(gas_used, 3+3+3+3+32005);
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().gas, 116140);
+}
+
+TEST_P(evm, create_gas_state_propagation_eos_evm)
+{
+    // Gas V3
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+
+    // Set CREATE opcode static gas cost to 32005
+    gas_params.G_txcreate = 32005;
+
+    // Bytecode created by `create()`
+    //    inst     |  cost
+    // PUSH1 0x00  |   3
+    // PUSH1 0x00  |   3
+    // PUSH1 0x00  |   3
+    // CREATE      |   32005
+
+    // 50000-(3+3+3+32005) = 17986
+    // Gas for the message sent after CREATE = 17986 - int(17986/64) = 17705 (gas_in)
+
+    // Contract 'initialization' result
+    host.call_result.gas_left = 5; //used 17700 (17000 cpu + 700 storage)
+    host.call_result.gas_refund = 100;
+    host.call_result.storage_gas_consumed = 2000;
+    host.call_result.storage_gas_refund = 1000;
+
+    // Run the 4 instructions and 'execute' initialization
+    execute(50000, create());
+
+    EXPECT_EQ(result.status_code, EVMC_SUCCESS);
+    EXPECT_EQ(result.gas_refund, 0);                       //consumed
+    EXPECT_EQ(result.storage_gas_consumed, 32005 + 1000);  //parent_storage+child_storage
+    EXPECT_EQ(result.storage_gas_refund, 0);               //consumed
+    EXPECT_EQ(gas_used, 3+3+3+32005 + 17700 - 1000 - 100); //total_parent + total_child - child_cpu_ref - child_storage_ref
+    ASSERT_EQ(host.recorded_calls.size(), 1);
+    EXPECT_EQ(host.recorded_calls.back().gas, 17705);
+}
+
+
+TEST_P(evm, call_gas_state_propagation_eos_evm)
+{
+    // Gas V3
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+
+    constexpr auto call_dst = 0x00000000000000000000000000000000000000ad_address;
+    constexpr auto msg_dst = 0x00000000000000000000000000000000000000fe_address;
+    const auto code = 4 * push(0) + push(1) + push(call_dst) + push(10) + OP_CALL + ret_top();
+
+    // [00]	PUSH1	00                                        // 3
+    // [02]	PUSH1	00                                        // 3
+    // [04]	PUSH1	00                                        // 3
+    // [06]	PUSH1	00                                        // 3
+    // [08]	PUSH1	01                                        // 3
+    // [0a]	PUSH20	00000000000000000000000000000000000000ad  // 3
+    // [1f]	PUSH1	0A                                        // 3
+    // [21]	CALL                                              // 100 + 25005 + 9000 + 2500
+    // [22]	PUSH1	00                                        // 3
+    // [24]	MSTORE                                            // 6
+    // [25]	PUSH1	20                                        // 3
+    // [27]	PUSH1	00                                        // 3
+    // [29]	RETURN                                            // 0
+
+    msg.recipient = msg_dst;
+
+    gas_params.G_newaccount   = 25005;
+    gas_params.G_txnewaccount = 25006;
+
+    host.accounts[msg.recipient].set_balance(1024);
+    host.accounts[call_dst].set_balance(1024);
+
+    // CALL result
+    host.call_result.gas_left = 0; //used 10 (7 cpu + 3 storage)
+    host.call_result.gas_refund = 200;
+    host.call_result.storage_gas_consumed = 3;
+    host.call_result.storage_gas_refund = 100;
+
+    execute(100000, code);
+
+    EXPECT_GAS_USED(EVMC_SUCCESS, 3+3+3+3+3+3+3+(100+0+9000+2500)+3+6+3+3+0 + 10 - 200 - 3);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 0);
+    EXPECT_EQ(result.storage_gas_refund, 97);
+    EXPECT_OUTPUT_INT(1);
 }

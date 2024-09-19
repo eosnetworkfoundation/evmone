@@ -109,7 +109,7 @@ namespace
 ///          or EVMC_SUCCESS if everything is fine.
 template <Opcode Op>
 inline evmc_status_code check_requirements(const CostTable& cost_table, int64_t& gas_left,
-    const uint256* stack_top, const uint256* stack_bottom, ExecutionState& state) noexcept
+    const uint256* stack_top, const uint256* stack_bottom) noexcept
 {
     static_assert(
         !instr::has_const_gas_cost(Op) || instr::gas_costs[EVMC_FRONTIER][Op] != instr::undefined,
@@ -143,13 +143,7 @@ inline evmc_status_code check_requirements(const CostTable& cost_table, int64_t&
             return EVMC_STACK_UNDERFLOW;
     }
 
-    if constexpr (Op == OP_CREATE || Op == OP_CREATE2) {
-        if(state.eos_evm_version > 0) {
-            gas_cost = static_cast<int64_t>(state.gas_params.G_txcreate);
-        }
-    }
 
-    gas_cost = state.apply_gas_refund(gas_cost);
     if (INTX_UNLIKELY((gas_left -= gas_cost) < 0))
         return EVMC_OUT_OF_GAS;
 
@@ -217,7 +211,7 @@ template <Opcode Op>
 [[release_inline]] inline Position invoke(const CostTable& cost_table, const uint256* stack_bottom,
     Position pos, int64_t& gas, ExecutionState& state) noexcept
 {
-    if (const auto status = check_requirements<Op>(cost_table, gas, pos.stack_top, stack_bottom, state);
+    if (const auto status = check_requirements<Op>(cost_table, gas, pos.stack_top, stack_bottom);
         status != EVMC_SUCCESS)
     {
         state.status = status;
@@ -356,10 +350,14 @@ evmc_result execute(
     }
 
     const auto gas_left = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? gas : 0;
-    const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_refund : 0;
+    const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.cpu_gas_refund() : 0;
 
-    const auto storage_gas_consumed = state.storage_gas_consumed;
-    const auto storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.storage_gas_refund : 0;
+    int64_t storage_gas_consumed = 0;
+    int64_t storage_gas_refund = 0;
+    if(state.eos_evm_version >= 3) {
+        storage_gas_consumed = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_state.storage_gas_consumed() : 0;
+        storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.storage_gas_refund() : 0;
+    }
 
     assert(state.output_size != 0 || state.output_offset == 0);
     const auto result = evmc::make_result(state.status, gas_left, gas_refund, storage_gas_consumed, storage_gas_refund,

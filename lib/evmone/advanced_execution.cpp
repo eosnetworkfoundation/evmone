@@ -19,10 +19,14 @@ evmc_result execute(AdvancedExecutionState& state, const AdvancedCodeAnalysis& a
 
     const auto gas_left =
         (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_left : 0;
-    const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_refund : 0;
+    const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.cpu_gas_refund() : 0;
 
-    const auto storage_gas_consumed = state.storage_gas_consumed;
-    const auto storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.storage_gas_refund : 0;
+    int64_t storage_gas_consumed = 0;
+    int64_t storage_gas_refund = 0;
+    if(state.eos_evm_version >= 3) {
+        storage_gas_consumed = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_state.storage_gas_consumed() : 0;
+        storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.storage_gas_refund() : 0;
+    }
 
     assert(state.output_size != 0 || state.output_offset == 0);
     return evmc::make_result(state.status, gas_left, gas_refund, storage_gas_consumed, storage_gas_refund,
