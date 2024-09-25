@@ -143,7 +143,6 @@ inline evmc_status_code check_requirements(const CostTable& cost_table, int64_t&
             return EVMC_STACK_UNDERFLOW;
     }
 
-
     if (INTX_UNLIKELY((gas_left -= gas_cost) < 0))
         return EVMC_OUT_OF_GAS;
 
@@ -349,18 +348,25 @@ evmc_result execute(
             gas = dispatch<false>(cost_table, state, gas, code.data());
     }
 
-    const auto gas_left = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? gas : 0;
+    auto gas_left = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? gas : 0;
     const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.cpu_gas_refund() : 0;
 
     int64_t storage_gas_consumed = 0;
     int64_t storage_gas_refund = 0;
+    int64_t speculative_cpu_gas_consumed = 0;
     if(state.eos_evm_version >= 3) {
         storage_gas_consumed = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_state.storage_gas_consumed() : 0;
         storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.storage_gas_refund() : 0;
+        speculative_cpu_gas_consumed = (state.status == EVMC_SUCCESS) ? state.gas_state.speculative_cpu_gas_consumed() : 0;
+
+        if(state.status != EVMC_SUCCESS) {
+            gas_left += state.gas_state.speculative_cpu_gas_consumed();
+            gas_left += state.gas_state.storage_gas_consumed();
+        }
     }
 
     assert(state.output_size != 0 || state.output_offset == 0);
-    const auto result = evmc::make_result(state.status, gas_left, gas_refund, storage_gas_consumed, storage_gas_refund,
+    const auto result = evmc::make_result(state.status, gas_left, gas_refund, storage_gas_consumed, storage_gas_refund, speculative_cpu_gas_consumed,
         state.output_size != 0 ? &state.memory[state.output_offset] : nullptr, state.output_size);
 
     if (INTX_UNLIKELY(tracer != nullptr))

@@ -91,7 +91,7 @@ Result sload(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     {
         // The warm storage access cost is already applied (from the cost table).
         // Here we need to apply additional cold storage access cost.
-        int64_t additional_cold_sload_cost = state.gas_state.apply_cpu_gas_delta(instr::cold_sload_cost - instr::warm_storage_read_cost);
+        int64_t additional_cold_sload_cost = instr::cold_sload_cost - instr::warm_storage_read_cost;
         if ((gas_left -= additional_cold_sload_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
@@ -123,13 +123,13 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
 
     if( state.eos_evm_version >= 3) {
         auto [cpu_gas_to_changle_slot_delta, storage_gas_delta] = storage_cost[status];
-        auto cpu_gas_to_consume = instr::warm_storage_read_cost + gas_cost_cold;
+        auto real_cpu_gas_to_consume = instr::warm_storage_read_cost + gas_cost_cold;
 
         const auto storage_gas_consumed = state.gas_state.apply_storage_gas_delta(storage_gas_delta);
-        const auto cpu_gas_consumed = state.gas_state.apply_cpu_gas_delta(cpu_gas_to_consume);
-        const auto cpu_gas_to_change_slot_consumed = state.gas_state.apply_cpu_gas_to_change_slot_delta(cpu_gas_to_changle_slot_delta);
+        const auto speculative_cpu_gas_consumed = state.gas_state.apply_speculative_cpu_gas_delta(cpu_gas_to_changle_slot_delta);
+        const auto real_cpu_gas_consumed = real_cpu_gas_to_consume;
 
-        const auto gas_cost = storage_gas_consumed + cpu_gas_consumed + cpu_gas_to_change_slot_consumed;
+        const auto gas_cost = storage_gas_consumed + real_cpu_gas_consumed + speculative_cpu_gas_consumed;
         if ((gas_left -= gas_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     } else {

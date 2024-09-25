@@ -74,7 +74,7 @@ TEST(execution_state, reset_advanced)
     const evmone::advanced::AdvancedCodeAnalysis analysis;
 
     evmone::advanced::AdvancedExecutionState st;
-    st.gas_state.reset(0, 0, 0, 0);
+    st.gas_state.reset(0, 0, 0, 0, 0);
     st.gas_left = 1;
     st.gas_state.add_cpu_gas_refund(2);
     st.stack.push({});

@@ -26,11 +26,9 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(dst) == EVMC_ACCESS_COLD)
     {
-        int64_t additional_cold_account_access_cost_rev = state.gas_state.apply_cpu_gas_delta(instr::additional_cold_account_access_cost);
-        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
+        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
-
     if (!check_memory(gas_left, state, input_offset_u256, input_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -60,7 +58,6 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         msg.input_data = &state.memory[input_offset];
         msg.input_size = input_size;
     }
-
     int64_t cost = has_value ? 9000 : 0;
 
     if constexpr (Op == OP_CALL)
@@ -79,10 +76,8 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
             }
         }
     }
-
     if ((gas_left -= cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
-
     msg.gas = std::numeric_limits<int64_t>::max();
     if (gas < msg.gas)
         msg.gas = static_cast<int64_t>(gas);
@@ -101,10 +96,12 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
     if (state.msg->depth >= 1024)
         return {EVMC_SUCCESS, gas_left};  // "Light" failure.
 
-    if (has_value && intx::be::load<uint256>(state.host.get_balance(state.msg->recipient)) < value)
+    if (has_value && intx::be::load<uint256>(state.host.get_balance(state.msg->recipient)) < value) {
         return {EVMC_SUCCESS, gas_left};  // "Light" failure.
+    }
 
     const auto result = state.host.call(msg);
+
     state.return_data.assign(result.output_data, result.output_size);
     stack.top() = result.status_code == EVMC_SUCCESS;
 
@@ -149,7 +146,7 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
     stack.push(0);  // Assume failure.
     state.return_data.clear();
 
-    // OP_CREATE/OP_CREATE2 gas cost (32000) is constant among all revisions
+    // OP_CREATE/OP_CREATE2 gas cost (32000) is constant among all evmc revisions up to Cancun
     int64_t gas_cost = 32000;
     if(state.eos_evm_version >= 3) {
         gas_cost = state.gas_state.apply_storage_gas_delta(static_cast<int64_t>(state.gas_params.G_txcreate));
@@ -170,7 +167,7 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto init_code_word_cost = 6 * (Op == OP_CREATE2) + 2 * (state.rev >= EVMC_SHANGHAI);
-    const auto init_code_cost = state.gas_state.apply_cpu_gas_delta(num_words(init_code_size) * init_code_word_cost);
+    const auto init_code_cost = num_words(init_code_size) * init_code_word_cost;
     if ((gas_left -= init_code_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 

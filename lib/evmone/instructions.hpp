@@ -80,7 +80,7 @@ inline constexpr int64_t num_words(uint64_t size_in_bytes) noexcept
     const auto current_words = static_cast<int64_t>(state.memory.size() / word_size);
     const auto new_cost = 3 * new_words + new_words * new_words / 512;
     const auto current_cost = 3 * current_words + current_words * current_words / 512;
-    const auto cost = state.gas_state.apply_cpu_gas_delta(new_cost - current_cost);
+    const auto cost = new_cost - current_cost;
 
     gas_left -= cost;
     if (gas_left >= 0) [[likely]]
@@ -208,7 +208,7 @@ inline Result exp(StackTop stack, int64_t gas_left, ExecutionState& state) noexc
     const auto exponent_significant_bytes =
         static_cast<int>(intx::count_significant_bytes(exponent));
     const auto exponent_cost = state.rev >= EVMC_SPURIOUS_DRAGON ? 50 : 10;
-    const auto additional_cost = state.gas_state.apply_cpu_gas_delta(exponent_significant_bytes * exponent_cost);
+    const auto additional_cost = exponent_significant_bytes * exponent_cost;
     if ((gas_left -= additional_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -351,7 +351,7 @@ inline Result keccak256(StackTop stack, int64_t gas_left, ExecutionState& state)
     const auto i = static_cast<size_t>(index);
     const auto s = static_cast<size_t>(size);
     const auto w = num_words(s);
-    const auto cost = state.gas_state.apply_cpu_gas_delta(w * 6);
+    const auto cost = w * 6;
     if ((gas_left -= cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -373,8 +373,7 @@ inline Result balance(StackTop stack, int64_t gas_left, ExecutionState& state) n
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        int64_t additional_cold_account_access_cost_rev = state.gas_state.apply_cpu_gas_delta(instr::additional_cold_account_access_cost);
-        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
+        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -436,7 +435,7 @@ inline Result calldatacopy(StackTop stack, int64_t gas_left, ExecutionState& sta
     auto s = static_cast<size_t>(size);
     auto copy_size = std::min(s, state.msg->input_size - src);
 
-    const auto copy_cost = state.gas_state.apply_cpu_gas_delta(num_words(s) * 3);
+    const auto copy_cost = num_words(s) * 3;
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -471,7 +470,7 @@ inline Result codecopy(StackTop stack, int64_t gas_left, ExecutionState& state) 
     const auto s = static_cast<size_t>(size);
     const auto copy_size = std::min(s, code_size - src);
 
-    const auto copy_cost = state.gas_state.apply_cpu_gas_delta(num_words(s) * 3);
+    const auto copy_cost = num_words(s) * 3;
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -503,8 +502,7 @@ inline Result extcodesize(StackTop stack, int64_t gas_left, ExecutionState& stat
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        int64_t additional_cold_account_access_cost_rev = state.gas_state.apply_cpu_gas_delta(instr::additional_cold_account_access_cost);
-        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
+        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -523,14 +521,13 @@ inline Result extcodecopy(StackTop stack, int64_t gas_left, ExecutionState& stat
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto s = static_cast<size_t>(size);
-    const auto copy_cost = state.gas_state.apply_cpu_gas_delta(num_words(s) * 3);
+    const auto copy_cost = num_words(s) * 3;
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        int64_t additional_cold_account_access_cost_rev = state.gas_state.apply_cpu_gas_delta(instr::additional_cold_account_access_cost);
-        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
+        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -571,7 +568,7 @@ inline Result returndatacopy(StackTop stack, int64_t gas_left, ExecutionState& s
     if (src + s > state.return_data.size())
         return {EVMC_INVALID_MEMORY_ACCESS, gas_left};
 
-    const auto copy_cost = state.gas_state.apply_cpu_gas_delta(num_words(s) * 3);
+    const auto copy_cost = num_words(s) * 3;
     if ((gas_left -= copy_cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -588,8 +585,7 @@ inline Result extcodehash(StackTop stack, int64_t gas_left, ExecutionState& stat
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(addr) == EVMC_ACCESS_COLD)
     {
-        int64_t additional_cold_account_access_cost_rev = state.gas_state.apply_cpu_gas_delta(instr::additional_cold_account_access_cost);
-        if ((gas_left -= additional_cold_account_access_cost_rev) < 0)
+        if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 
@@ -921,7 +917,7 @@ inline Result log(StackTop stack, int64_t gas_left, ExecutionState& state) noexc
     const auto o = static_cast<size_t>(offset);
     const auto s = static_cast<size_t>(size);
 
-    const auto cost = state.gas_state.apply_cpu_gas_delta(int64_t(s) * 8);
+    const auto cost = int64_t(s) * 8;
     if ((gas_left -= cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -1004,8 +1000,7 @@ inline TermResult selfdestruct(StackTop stack, int64_t gas_left, ExecutionState&
 
     if (state.rev >= EVMC_BERLIN && state.host.access_account(beneficiary) == EVMC_ACCESS_COLD)
     {
-        int64_t cold_account_access_cost_rev = state.gas_state.apply_cpu_gas_delta(instr::cold_account_access_cost);
-        if ((gas_left -= cold_account_access_cost_rev) < 0)
+        if ((gas_left -= instr::cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
 

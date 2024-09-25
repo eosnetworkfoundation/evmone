@@ -17,19 +17,25 @@ evmc_result execute(AdvancedExecutionState& state, const AdvancedCodeAnalysis& a
     while (instr != nullptr)
         instr = instr->fn(instr, state);
 
-    const auto gas_left =
-        (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_left : 0;
+    auto gas_left = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_left : 0;
     const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.cpu_gas_refund() : 0;
 
     int64_t storage_gas_consumed = 0;
     int64_t storage_gas_refund = 0;
+    int64_t speculative_cpu_gas_consumed = 0;
     if(state.eos_evm_version >= 3) {
         storage_gas_consumed = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_state.storage_gas_consumed() : 0;
         storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.storage_gas_refund() : 0;
+        speculative_cpu_gas_consumed = (state.status == EVMC_SUCCESS) ? state.gas_state.speculative_cpu_gas_consumed() : 0;
+
+        if(state.status != EVMC_SUCCESS) {
+            gas_left += state.gas_state.speculative_cpu_gas_consumed();
+            gas_left += state.gas_state.storage_gas_consumed();
+        }
     }
 
     assert(state.output_size != 0 || state.output_offset == 0);
-    return evmc::make_result(state.status, gas_left, gas_refund, storage_gas_consumed, storage_gas_refund,
+    return evmc::make_result(state.status, gas_left, gas_refund, storage_gas_consumed, storage_gas_refund, speculative_cpu_gas_consumed,
         state.memory.data() + state.output_offset, state.output_size);
 }
 
@@ -48,7 +54,7 @@ evmc_result execute(evmc_vm* /*unused*/, const evmc_host_interface* host, evmc_h
         else
             // Skip analysis, because it will recognize 01 section id as OP_ADD and return
             // EVMC_STACKUNDERFLOW.
-            return evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, 0l, 0l, nullptr, 0);
+            return evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, 0l, 0l, 0l, nullptr, 0);
     }
     else
         analysis = analyze(rev, container);
