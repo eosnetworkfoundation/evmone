@@ -29,10 +29,10 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
-    if (!check_memory(gas_left, state, input_offset_u256, input_size_u256))
+    if (!check_memory(gas_left, state.memory, input_offset_u256, input_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
-    if (!check_memory(gas_left, state, output_offset_u256, output_size_u256))
+    if (!check_memory(gas_left, state.memory, output_offset_u256, output_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto input_offset = static_cast<size_t>(input_offset_u256);
@@ -157,7 +157,7 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
     if (INTX_UNLIKELY((gas_left -= gas_cost) < 0))
         return {EVMC_OUT_OF_GAS, gas_left};
 
-    if (!check_memory(gas_left, state, init_code_offset_u256, init_code_size_u256))
+    if (!check_memory(gas_left, state.memory, init_code_offset_u256, init_code_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto init_code_offset = static_cast<size_t>(init_code_offset_u256);

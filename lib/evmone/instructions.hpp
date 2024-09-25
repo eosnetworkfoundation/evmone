@@ -71,26 +71,26 @@ inline constexpr int64_t num_words(uint64_t size_in_bytes) noexcept
 ///
 /// TODO: This function should be moved to Memory class.
 [[gnu::noinline]] inline int64_t grow_memory(
-    int64_t gas_left, ExecutionState& state, uint64_t new_size) noexcept
+    int64_t gas_left, Memory& memory, uint64_t new_size) noexcept
 {
     // This implementation recomputes memory.size(). This value is already known to the caller
     // and can be passed as a parameter, but this make no difference to the performance.
 
     const auto new_words = num_words(new_size);
-    const auto current_words = static_cast<int64_t>(state.memory.size() / word_size);
+    const auto current_words = static_cast<int64_t>(memory.size() / word_size);
     const auto new_cost = 3 * new_words + new_words * new_words / 512;
     const auto current_cost = 3 * current_words + current_words * current_words / 512;
     const auto cost = new_cost - current_cost;
 
     gas_left -= cost;
     if (gas_left >= 0) [[likely]]
-        state.memory.grow(static_cast<size_t>(new_words * word_size));
+        memory.grow(static_cast<size_t>(new_words * word_size));
     return gas_left;
 }
 
 /// Check memory requirements of a reasonable size.
 inline bool check_memory(
-    int64_t& gas_left, ExecutionState& state, const uint256& offset, uint64_t size) noexcept
+    int64_t& gas_left, Memory& memory, const uint256& offset, uint64_t size) noexcept
 {
     // TODO: This should be done in intx.
     // There is "branchless" variant of this using | instead of ||, but benchmarks difference
@@ -99,15 +99,15 @@ inline bool check_memory(
         return false;
 
     const auto new_size = static_cast<uint64_t>(offset) + size;
-    if (new_size > state.memory.size())
-        gas_left = grow_memory(gas_left, state, new_size);
+    if (new_size > memory.size())
+        gas_left = grow_memory(gas_left, memory, new_size);
 
     return gas_left >= 0;  // Always true for no-grow case.
 }
 
 /// Check memory requirements for "copy" instructions.
 inline bool check_memory(
-    int64_t& gas_left, ExecutionState& state, const uint256& offset, const uint256& size) noexcept
+    int64_t& gas_left, Memory& memory, const uint256& offset, const uint256& size) noexcept
 {
     if (size == 0)  // Copy of size 0 is always valid (even if offset is huge).
         return true;
@@ -118,7 +118,7 @@ inline bool check_memory(
     if (((size[3] | size[2] | size[1]) != 0) || (size[0] > max_buffer_size))
         return false;
 
-    return check_memory(gas_left, state, offset, static_cast<uint64_t>(size));
+    return check_memory(gas_left, memory, offset, static_cast<uint64_t>(size));
 }
 
 namespace instr::core
@@ -345,7 +345,7 @@ inline Result keccak256(StackTop stack, int64_t gas_left, ExecutionState& state)
     const auto& index = stack.pop();
     auto& size = stack.top();
 
-    if (!check_memory(gas_left, state, index, size))
+    if (!check_memory(gas_left, state.memory, index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto i = static_cast<size_t>(index);
@@ -426,7 +426,7 @@ inline Result calldatacopy(StackTop stack, int64_t gas_left, ExecutionState& sta
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state, mem_index, size))
+    if (!check_memory(gas_left, state.memory, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     auto dst = static_cast<size_t>(mem_index);
@@ -461,7 +461,7 @@ inline Result codecopy(StackTop stack, int64_t gas_left, ExecutionState& state) 
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state, mem_index, size))
+    if (!check_memory(gas_left, state.memory, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto code_size = state.original_code.size();
@@ -517,7 +517,7 @@ inline Result extcodecopy(StackTop stack, int64_t gas_left, ExecutionState& stat
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state, mem_index, size))
+    if (!check_memory(gas_left, state.memory, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto s = static_cast<size_t>(size);
@@ -555,7 +555,7 @@ inline Result returndatacopy(StackTop stack, int64_t gas_left, ExecutionState& s
     const auto& input_index = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state, mem_index, size))
+    if (!check_memory(gas_left, state.memory, mem_index, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     auto dst = static_cast<size_t>(mem_index);
@@ -648,7 +648,7 @@ inline Result mload(StackTop stack, int64_t gas_left, ExecutionState& state) noe
 {
     auto& index = stack.top();
 
-    if (!check_memory(gas_left, state, index, 32))
+    if (!check_memory(gas_left, state.memory, index, 32))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     index = intx::be::unsafe::load<uint256>(&state.memory[static_cast<size_t>(index)]);
@@ -660,7 +660,7 @@ inline Result mstore(StackTop stack, int64_t gas_left, ExecutionState& state) no
     const auto& index = stack.pop();
     const auto& value = stack.pop();
 
-    if (!check_memory(gas_left, state, index, 32))
+    if (!check_memory(gas_left, state.memory, index, 32))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     intx::be::unsafe::store(&state.memory[static_cast<size_t>(index)], value);
@@ -672,7 +672,7 @@ inline Result mstore8(StackTop stack, int64_t gas_left, ExecutionState& state) n
     const auto& index = stack.pop();
     const auto& value = stack.pop();
 
-    if (!check_memory(gas_left, state, index, 1))
+    if (!check_memory(gas_left, state.memory, index, 1))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     state.memory[static_cast<size_t>(index)] = static_cast<uint8_t>(value);
@@ -911,7 +911,7 @@ inline Result log(StackTop stack, int64_t gas_left, ExecutionState& state) noexc
     const auto& offset = stack.pop();
     const auto& size = stack.pop();
 
-    if (!check_memory(gas_left, state, offset, size))
+    if (!check_memory(gas_left, state.memory, offset, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto o = static_cast<size_t>(offset);
@@ -980,7 +980,7 @@ inline TermResult return_impl(StackTop stack, int64_t gas_left, ExecutionState& 
     const auto& offset = stack[0];
     const auto& size = stack[1];
 
-    if (!check_memory(gas_left, state, offset, size))
+    if (!check_memory(gas_left, state.memory, offset, size))
         return {EVMC_OUT_OF_GAS, gas_left};
 
     state.output_size = static_cast<size_t>(size);
