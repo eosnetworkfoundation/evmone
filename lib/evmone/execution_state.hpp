@@ -242,11 +242,6 @@ struct gas_state_t {
         return cpu_gas_delta;
     }
 
-    int64_t cpu_gas_consumed(int64_t total_gas_consumed)const {
-        assert(total_gas_consumed >= storage_gas_consumed_);
-        return total_gas_consumed - storage_gas_consumed_;
-    }
-
     int64_t cpu_gas_refund()const {
         return cpu_gas_refund_;
     }
@@ -256,14 +251,26 @@ struct gas_state_t {
         add_cpu_gas_refund(child_gas_state.cpu_gas_refund());
         storage_gas_refund_ += child_gas_state.storage_gas_refund();
 
-        const auto child_cpu_gas_to_consume = child_gas_state.cpu_gas_consumed(child_total_gas_to_consume);
-
         const auto child_storage_gas_to_consume = child_gas_state.storage_gas_consumed();
         const auto child_speculative_cpu_gas_to_consume = child_gas_state.speculative_cpu_gas_consumed();
-        const auto child_real_cpu_gas_consumed = child_cpu_gas_to_consume - child_speculative_cpu_gas_to_consume;
+        const auto child_real_cpu_gas_consumed = child_total_gas_to_consume - child_storage_gas_to_consume - child_speculative_cpu_gas_to_consume;
 
         const auto child_total_gas_consumed = apply_storage_gas_delta(child_storage_gas_to_consume) + child_real_cpu_gas_consumed + apply_speculative_cpu_gas_delta(child_speculative_cpu_gas_to_consume);
         return child_total_gas_consumed;
+    }
+
+    int64_t collapse() {
+        const auto s =  std::min(storage_gas_consumed_, storage_gas_refund_);
+        const auto x = storage_gas_consumed_ - storage_gas_refund_;
+        storage_gas_consumed_ = std::max(x, 0l);
+        storage_gas_refund_ = std::max(-x, 0l);
+
+        const auto c = std::min(speculative_cpu_gas_consumed_, cpu_gas_refund_);
+        const auto y = speculative_cpu_gas_consumed_ - cpu_gas_refund_;
+        storage_gas_consumed_ = std::max(y, 0l);
+        storage_gas_refund_ = std::max(-y, 0l);
+
+        return s + c;
     }
 
     void add_cpu_gas_refund(int64_t cpu_refund) {

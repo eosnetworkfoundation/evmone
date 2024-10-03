@@ -168,7 +168,7 @@ TEST_P(evm, call_new_account_creation_cost_eos_evm)
     EXPECT_EQ(result.gas_refund, 0);
     EXPECT_EQ(result.storage_gas_consumed, 25005);
     EXPECT_EQ(result.storage_gas_refund, 0);
-    EXPECT_EQ(result.speculative_cpu_gas_consumed, 0);
+    EXPECT_EQ(result.speculative_cpu_gas_consumed, 6700);
     EXPECT_OUTPUT_INT(1);
     ASSERT_EQ(host.recorded_calls.size(), 1);
     EXPECT_EQ(host.recorded_calls.back().recipient, call_dst);
@@ -526,7 +526,7 @@ TEST_P(evm, call_gas_state_integration_eos_evm)
     // |          3 |    -    |       0|       0|      0|       0|   99985 | PUSH1 0x01
     // |          3 |    -    |       0|       0|      0|       0|   99982 | PUSH20 0xad
     // |          3 |    -    |       0|       0|      0|       0|   99979 | PUSH1 0x0a
-    // |        100 |    -    |       0|       0|      0|       0|   65674 | CALL (100 + 2500 + 9000 + 25005 - 2300)
+    // |        100 |    -    |       0|       0|  25005|       0|   65674 | CALL (100 + 2500 + 9000 + 25005 - 2300)
     // ---------------------------------------------------------------------------------- call (gas:2310)
     //              |         |       0|       0|      0|       0|    2310 |
     //                                .        .       .        .        .
@@ -552,10 +552,10 @@ TEST_P(evm, call_gas_state_integration_eos_evm)
     EXPECT_EQ(result.gas_refund, 200);
     EXPECT_EQ(result.storage_gas_consumed, 25005);
     EXPECT_EQ(result.storage_gas_refund, 97);
-    EXPECT_EQ(result.speculative_cpu_gas_consumed, 0);
+    EXPECT_EQ(result.speculative_cpu_gas_consumed, 6700);
 
     const auto real_cpu_consumed = (gas_used_ - result.storage_gas_consumed) - result.speculative_cpu_gas_consumed;
-    EXPECT_EQ(real_cpu_consumed, 3*7 + 100 + 2500 + (9000 - 2300) + (2310 - 3) );
+    EXPECT_EQ(real_cpu_consumed, 3*7 + 100 + 2500 + (2310 - 3) );
 }
 
 TEST_P(evm, create_gas_state_propagation_eos_evm)
@@ -647,7 +647,7 @@ TEST_P(evm, call_gas_state_integration_out_of_gas_eos_evm)
     //                   .            .        .       .        .        . |
     //            - |end-state|       0|       0|      0|       0|    1000 | (oog)
     // ---------------------------------------------------------------------------------- call end
-    //              |         |       0|        |      0|        |   64674 | => post integrate
+    //              |         |       0|        |      0|        |   64364 | => post integrate
 
     // CALL result
     host.call_result.status_code = EVMC_OUT_OF_GAS;
@@ -659,7 +659,7 @@ TEST_P(evm, call_gas_state_integration_out_of_gas_eos_evm)
 
     execute(100000, code);
 
-    const auto gas_left_ = 65674 - (2310 - 1000);
+    const auto gas_left_ = 65674 - (2310 - 1000); //64364
     const auto gas_used_ = 100000 - gas_left_;
 
     EXPECT_GAS_USED(EVMC_SUCCESS, gas_used_);
@@ -667,8 +667,68 @@ TEST_P(evm, call_gas_state_integration_out_of_gas_eos_evm)
     EXPECT_EQ(result.gas_refund, 0);
     EXPECT_EQ(result.storage_gas_consumed, 25005);
     EXPECT_EQ(result.storage_gas_refund, 0);
-    EXPECT_EQ(result.speculative_cpu_gas_consumed, 0);
+    EXPECT_EQ(result.speculative_cpu_gas_consumed, 6700);
 
     const auto real_cpu_consumed = (gas_used_ - result.storage_gas_consumed) - result.speculative_cpu_gas_consumed;
-    EXPECT_EQ(real_cpu_consumed, 3*7 + 100 + 2500 + (9000 - 2300) + (2310 - 1000) );
+    EXPECT_EQ(real_cpu_consumed, 3*7 + 100 + 2500 + (2310 - 1000) );
+}
+
+TEST_P(evm, call_gas_state_integration_revert_eos_evm)
+{
+    // Gas V3
+    eos_evm_version = 3;
+    rev = evm_version_to_revision[eos_evm_version];
+
+    constexpr auto call_dst = 0x00000000000000000000000000000000000000ad_address;
+    constexpr auto msg_dst = 0x00000000000000000000000000000000000000fe_address;
+    const auto code = 4 * push(0) + push(1) + push(call_dst) + push(10) + OP_CALL;
+
+    msg.recipient = msg_dst;
+
+    gas_params.G_newaccount = 25005;
+    gas_params.G_txnewaccount = 25006;
+
+    host.accounts[msg.recipient].set_balance(1024);
+
+    // |     pc     |    cc   |  scgc  |  cref  |  sgc  |  sref  |  left   | [*1]
+    // ---------------------------------------------------------------------
+    // |            |         |        |        |       |        |  100000 |
+    // |          3 |    -    |       0|       0|      0|       0|   99997 | PUSH1 0x00
+    // |          3 |    -    |       0|       0|      0|       0|   99994 | PUSH1 0x00
+    // |          3 |    -    |       0|       0|      0|       0|   99991 | PUSH1 0x00
+    // |          3 |    -    |       0|       0|      0|       0|   99988 | PUSH1 0x00
+    // |          3 |    -    |       0|       0|      0|       0|   99985 | PUSH1 0x01
+    // |          3 |    -    |       0|       0|      0|       0|   99982 | PUSH20 0xad
+    // |          3 |    -    |       0|       0|      0|       0|   99979 | PUSH1 0x0a
+    // |        100 |    -    |       0|       0|      0|       0|   65674 | CALL (100 + 2500 + 9000 + 25005 - 2300)
+    // ---------------------------------------------------------------------------------- call (gas:2310)
+    //              |         |       0|       0|      0|       0|    2310 |
+    //                   .            .        .       .        .        . |
+    //                   .            .        .       .        .        . |
+    //            - |end-state|       0|       0|      0|       0|    1000 | (revert)
+    // ---------------------------------------------------------------------------------- call end
+    //              |         |       0|        |      0|        |   64364 | => post integrate
+
+    // CALL result
+    host.call_result.status_code = EVMC_REVERT;
+    host.call_result.gas_left = 1000;
+    host.call_result.gas_refund = 0;
+    host.call_result.storage_gas_consumed = 0;
+    host.call_result.storage_gas_refund = 0;
+    host.call_result.speculative_cpu_gas_consumed = 0;
+
+    execute(100000, code);
+
+    const auto gas_left_ = 65674 - (2310 - 1000); //64364
+    const auto gas_used_ = 100000 - gas_left_;
+
+    EXPECT_GAS_USED(EVMC_SUCCESS, gas_used_);
+    EXPECT_EQ(result.gas_left, gas_left_);
+    EXPECT_EQ(result.gas_refund, 0);
+    EXPECT_EQ(result.storage_gas_consumed, 25005);
+    EXPECT_EQ(result.storage_gas_refund, 0);
+    EXPECT_EQ(result.speculative_cpu_gas_consumed, 6700);
+
+    const auto real_cpu_consumed = (gas_used_ - result.storage_gas_consumed) - result.speculative_cpu_gas_consumed;
+    EXPECT_EQ(real_cpu_consumed, 3*7 + 100 + 2500 + (2310 - 1000) );
 }

@@ -123,11 +123,10 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
 
     if( state.eos_evm_version >= 3) {
         auto [cpu_gas_to_changle_slot_delta, storage_gas_delta] = storage_cost[status];
-        auto real_cpu_gas_to_consume = instr::warm_storage_read_cost + gas_cost_cold;
+        const auto real_cpu_gas_consumed = instr::warm_storage_read_cost + gas_cost_cold;
 
         const auto storage_gas_consumed = state.gas_state.apply_storage_gas_delta(storage_gas_delta);
         const auto speculative_cpu_gas_consumed = state.gas_state.apply_speculative_cpu_gas_delta(cpu_gas_to_changle_slot_delta);
-        const auto real_cpu_gas_consumed = real_cpu_gas_to_consume;
 
         const auto gas_cost = storage_gas_consumed + real_cpu_gas_consumed + speculative_cpu_gas_consumed;
         if ((gas_left -= gas_cost) < 0)

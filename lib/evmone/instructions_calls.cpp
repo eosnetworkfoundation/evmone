@@ -58,7 +58,15 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         msg.input_data = &state.memory[input_offset];
         msg.input_size = input_size;
     }
-    int64_t cost = has_value ? 9000 : 0;
+    int64_t cost = has_value ? 2300 : 0;
+
+    if(has_value) {
+        if(state.eos_evm_version >= 3) {
+            cost += state.gas_state.apply_speculative_cpu_gas_delta(6700);
+        } else {
+            cost += 6700;
+        }
+    }
 
     if constexpr (Op == OP_CALL)
     {

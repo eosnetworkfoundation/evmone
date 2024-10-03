@@ -24,7 +24,7 @@ evmc_result execute(AdvancedExecutionState& state, const AdvancedCodeAnalysis& a
     int64_t storage_gas_refund = 0;
     int64_t speculative_cpu_gas_consumed = 0;
     if(state.eos_evm_version >= 3) {
-        storage_gas_consumed = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? state.gas_state.storage_gas_consumed() : 0;
+        storage_gas_consumed = (state.status == EVMC_SUCCESS) ? state.gas_state.storage_gas_consumed() : 0;
         storage_gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.storage_gas_refund() : 0;
         speculative_cpu_gas_consumed = (state.status == EVMC_SUCCESS) ? state.gas_state.speculative_cpu_gas_consumed() : 0;
 
