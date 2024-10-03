@@ -142,8 +142,8 @@ TEST(instructions, compare_with_evmc_instruction_tables)
                 return case_descr_str.str();
             };
 
-            EXPECT_EQ(gas_cost, ref_metrics.gas_cost) << case_descr(i);
-            EXPECT_EQ(metrics.gas_cost, ref_metrics.gas_cost) << case_descr(i);
+            EXPECT_EQ(gas_cost, i==evmc_opcode::OP_CREATE || i==evmc_opcode::OP_CREATE2 ? 0 : ref_metrics.gas_cost) << case_descr(i);
+            EXPECT_EQ(metrics.gas_cost, i==evmc_opcode::OP_CREATE || i==evmc_opcode::OP_CREATE2 ? 0 : ref_metrics.gas_cost) << case_descr(i);
             EXPECT_EQ(metrics.stack_req, ref_metrics.stack_height_required) << case_descr(i);
             EXPECT_EQ(metrics.stack_change, ref_metrics.stack_height_change) << case_descr(i);
         }

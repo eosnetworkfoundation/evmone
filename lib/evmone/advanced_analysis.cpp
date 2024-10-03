@@ -41,14 +41,6 @@ struct BlockAnalysis
 
 AdvancedCodeAnalysis analyze(evmc_revision rev, bytes_view code) noexcept
 {
-    const auto* state = new AdvancedExecutionState();
-    auto res = analyze(rev, code, *state);
-    delete state;
-    return res;
-}
-
-AdvancedCodeAnalysis analyze(evmc_revision rev, bytes_view code, const AdvancedExecutionState& state) noexcept
-{
     const auto& op_tbl = get_op_table(rev);
     const auto opx_beginblock_fn = op_tbl[OPX_BEGINBLOCK].fn;
 
@@ -92,12 +84,7 @@ AdvancedCodeAnalysis analyze(evmc_revision rev, bytes_view code, const AdvancedE
         block.stack_req = std::max(block.stack_req, opcode_info.stack_req - block.stack_change);
         block.stack_change += opcode_info.stack_change;
         block.stack_max_growth = std::max(block.stack_max_growth, block.stack_change);
-
-        if(state.eos_evm_version > 0 && (opcode == OP_CREATE || opcode == OP_CREATE2)) {
-            block.gas_cost += static_cast<int64_t>(state.gas_params.G_txcreate);
-        } else {
-            block.gas_cost += opcode_info.gas_cost;
-        }
+        block.gas_cost += opcode_info.gas_cost;
 
         auto& instr = analysis.instrs.back();
 
