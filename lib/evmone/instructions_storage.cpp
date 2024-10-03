@@ -106,7 +106,6 @@ Result sstore(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
     if (state.in_static_mode())
         return {EVMC_STATIC_MODE_VIOLATION, gas_left};
 
-    //TODO: should we use state.total_gas_left(gas_left) instead of gas_left?
     if (state.rev >= EVMC_ISTANBUL && gas_left <= 2300)
         return {EVMC_OUT_OF_GAS, gas_left};
 
