@@ -267,8 +267,8 @@ struct gas_state_t {
 
         const auto c = std::min(speculative_cpu_gas_consumed_, cpu_gas_refund_);
         const auto y = speculative_cpu_gas_consumed_ - cpu_gas_refund_;
-        storage_gas_consumed_ = std::max(y, 0l);
-        storage_gas_refund_ = std::max(-y, 0l);
+        speculative_cpu_gas_consumed_ = std::max(y, 0l);
+        cpu_gas_refund_ = std::max(-y, 0l);
 
         return s + c;
     }
