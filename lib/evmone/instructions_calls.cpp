@@ -29,7 +29,6 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         if ((gas_left -= instr::additional_cold_account_access_cost) < 0)
             return {EVMC_OUT_OF_GAS, gas_left};
     }
-
     if (!check_memory(gas_left, state.memory, input_offset_u256, input_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
 
@@ -59,8 +58,15 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         msg.input_data = &state.memory[input_offset];
         msg.input_size = input_size;
     }
+    int64_t cost = has_value ? 2300 : 0;
 
-    int64_t cost = has_value ? 9000 : 0;
+    if(has_value) {
+        if(state.eos_evm_version >= 3) {
+            cost += state.gas_state.apply_speculative_cpu_gas_delta(6700);
+        } else {
+            cost += 6700;
+        }
+    }
 
     if constexpr (Op == OP_CALL)
     {
@@ -68,17 +74,18 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
             return {EVMC_STATIC_MODE_VIOLATION, gas_left};
 
         if ((has_value || state.rev < EVMC_SPURIOUS_DRAGON) && !state.host.account_exists(dst)) {
-            if( state.eos_evm_version > 0 ) {
+            if( state.eos_evm_version >= 3 ) {
+                auto storage_cost = state.gas_state.apply_storage_gas_delta(static_cast<int64_t>(state.gas_params.G_newaccount));
+                cost += storage_cost;
+            } else if( state.eos_evm_version >= 1 ) {
                 cost += static_cast<int64_t>(state.gas_params.G_newaccount);
             } else {
                 cost += 25000;
             }
         }
     }
-
     if ((gas_left -= cost) < 0)
         return {EVMC_OUT_OF_GAS, gas_left};
-
     msg.gas = std::numeric_limits<int64_t>::max();
     if (gas < msg.gas)
         msg.gas = static_cast<int64_t>(gas);
@@ -97,19 +104,27 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
     if (state.msg->depth >= 1024)
         return {EVMC_SUCCESS, gas_left};  // "Light" failure.
 
-    if (has_value && intx::be::load<uint256>(state.host.get_balance(state.msg->recipient)) < value)
+    if (has_value && intx::be::load<uint256>(state.host.get_balance(state.msg->recipient)) < value) {
         return {EVMC_SUCCESS, gas_left};  // "Light" failure.
+    }
 
     const auto result = state.host.call(msg);
+
     state.return_data.assign(result.output_data, result.output_size);
     stack.top() = result.status_code == EVMC_SUCCESS;
 
     if (const auto copy_size = std::min(output_size, result.output_size); copy_size > 0)
         std::memcpy(&state.memory[output_offset], result.output_data, copy_size);
 
-    const auto gas_used = msg.gas - result.gas_left;
-    gas_left -= gas_used;
-    state.gas_refund += result.gas_refund;
+    if( state.eos_evm_version >= 3 ) {
+        gas_left -= state.gas_state.integrate(msg.gas - result.gas_left,
+            gas_state_t::from_result(state.eos_evm_version, result));
+    } else {
+        const auto gas_used = msg.gas - result.gas_left;
+        gas_left -= gas_used;
+        state.gas_state.add_cpu_gas_refund(result.gas_refund);
+    }
+
     return {EVMC_SUCCESS, gas_left};
 }
 
@@ -138,6 +153,17 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
 
     stack.push(0);  // Assume failure.
     state.return_data.clear();
+
+    // OP_CREATE/OP_CREATE2 gas cost (32000) is constant among all evmc revisions up to Cancun
+    int64_t gas_cost = 32000;
+    if(state.eos_evm_version >= 3) {
+        gas_cost = state.gas_state.apply_storage_gas_delta(static_cast<int64_t>(state.gas_params.G_txcreate));
+    } else if (state.eos_evm_version >= 1) {
+        gas_cost = static_cast<int64_t>(state.gas_params.G_txcreate);
+    }
+
+    if (INTX_UNLIKELY((gas_left -= gas_cost) < 0))
+        return {EVMC_OUT_OF_GAS, gas_left};
 
     if (!check_memory(gas_left, state.memory, init_code_offset_u256, init_code_size_u256))
         return {EVMC_OUT_OF_GAS, gas_left};
@@ -176,10 +202,15 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
     msg.depth = state.msg->depth + 1;
     msg.create2_salt = intx::be::store<evmc::bytes32>(salt);
     msg.value = intx::be::store<evmc::uint256be>(endowment);
-    const auto result = state.host.call(msg);
-    gas_left -= msg.gas - result.gas_left;
-    state.gas_refund += result.gas_refund;
 
+    const auto result = state.host.call(msg);
+    if( state.eos_evm_version >= 3 ) {
+        gas_left -= state.gas_state.integrate(msg.gas - result.gas_left,
+            gas_state_t::from_result(state.eos_evm_version, result));
+    } else {
+        gas_left -= msg.gas - result.gas_left;
+        state.gas_state.add_cpu_gas_refund(result.gas_refund);
+    }
     state.return_data.assign(result.output_data, result.output_size);
     if (result.status_code == EVMC_SUCCESS)
         stack.top() = intx::be::load<uint256>(result.create_address);
