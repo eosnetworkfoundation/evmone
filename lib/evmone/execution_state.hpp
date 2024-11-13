@@ -145,16 +145,16 @@ struct gas_parameters {
     uint64_t G_codedeposit = 200;
     uint64_t G_sset = 20000;
 
-    static gas_parameters apply_discount_factor(const intx::uint256& inclusion_price, const intx::uint256& base_fee_per_gas, const uint64_t storage_price, const evmone::gas_parameters& g) {
+    static gas_parameters apply_discount_factor(const intx::uint256& inclusion_price, const uint64_t base_fee_per_gas, const uint64_t storage_price, const evmone::gas_parameters& g) {
         //storage_gas_discount_factor = (storage_price)/(base_price + inclusion_price)
         const intx::uint256 num(storage_price);
-        const intx::uint256 den(base_fee_per_gas + inclusion_price);
+        const intx::uint256 den(intx::uint256(base_fee_per_gas) + intx::uint256(inclusion_price));
         gas_parameters out;
         out.G_txnewaccount = static_cast<uint64_t>((num*g.G_txnewaccount)/den);
         out.G_newaccount   = static_cast<uint64_t>((num*g.G_newaccount)/den);
         out.G_txcreate     = static_cast<uint64_t>((num*g.G_txcreate)/den);
         out.G_codedeposit  = static_cast<uint64_t>((num*g.G_codedeposit)/den);
-        out.G_sset         = static_cast<uint64_t>((num*g.G_codedeposit)/den);
+        out.G_sset         = static_cast<uint64_t>((num*g.G_sset)/den);
         return out;
     };
 
