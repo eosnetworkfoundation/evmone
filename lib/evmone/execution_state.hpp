@@ -175,7 +175,7 @@ private:
         storage_cost_t st;
         if( version >= 3) {
             int64_t cpu_gas_to_change_slot  = reset - warm_access; //cpu cost of adding or removing or mutating a slot in the db
-            int64_t storage_gas_to_add_slot = set - reset; //storage cost of adding a new slot into the db
+            int64_t storage_gas_to_add_slot = set; //storage cost of adding a new slot into the db
 
             st[EVMC_STORAGE_ASSIGNED]          = {                      0,                        0};
             st[EVMC_STORAGE_ADDED]             = { cpu_gas_to_change_slot,  storage_gas_to_add_slot};
