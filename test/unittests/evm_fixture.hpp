@@ -3,16 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "evmone/eof.hpp"
 #include <evmc/mocked_host.hpp>
 #include <gtest/gtest.h>
 #include <intx/intx.hpp>
 #include <test/utils/bytecode.hpp>
-
-#include <evmone/vm.hpp>
-#include <evmone/baseline.hpp>
-#include <evmone/advanced_execution.hpp>
-#include <evmone/advanced_analysis.hpp>
-#include <evmone/execution_state.hpp>
 
 #define EXPECT_STATUS(STATUS_CODE)                                           \
     EXPECT_EQ(result.status_code, STATUS_CODE);                              \
@@ -118,30 +113,13 @@ protected:
             host.access_account(msg.recipient);
         }
 
-        if(!is_advanced()) {
-            evmone::ExecutionState state;
-            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
-            auto& evm_ = *static_cast<evmone::VM*>(vm.get_raw_pointer());
-            auto analysis = evmone::baseline::analyze(rev, code);
-            result = evmc::Result{evmone::baseline::execute(evm_, gas, state, analysis)};
-        } else {
-            evmone::advanced::AdvancedExecutionState state;
-            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
-            evmone::advanced::AdvancedCodeAnalysis analysis;
-            const bytes_view container = {code.data(), code.size()};
-            if (is_eof_container(container)) {
-                if (rev >= EVMC_CANCUN) {
-                    const auto eof1_header = read_valid_eof1_header(container);
-                    analysis = evmone::advanced::analyze(rev, eof1_header.get_code(container, 0));
-                } else {
-                    result = evmc::Result{evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, 0, 0, 0, nullptr, 0)};
-                    return;
-                }
-            } else {
-                analysis = evmone::advanced::analyze(rev, container);
-            }
-            result = evmc::Result{evmone::advanced::execute(state, analysis)};
+        if (rev >= EVMC_PRAGUE && is_eof_container(code))
+        {
+            ASSERT_EQ(get_error_message(validate_eof(rev, ContainerKind::runtime, code)),
+                get_error_message(EOFValidationError::success));
         }
+
+        result = vm.execute(host, rev, msg, code.data(), code.size());
         output = {result.output_data, result.output_size};
         gas_used = msg.gas - result.gas_left;
     }
