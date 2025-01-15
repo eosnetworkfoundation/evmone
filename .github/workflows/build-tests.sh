@@ -16,12 +16,11 @@ ee cmake --version
 # build
 ee mkdir build
 ee pushd build
-ee cmake -DEVMONE_TESTING=ON ..
+ee cmake -DEVMONE_TESTING=ON -DBUILD_SHARED_LIBS=OFF ..
 ee make -j "$(nproc)"
 
 # pack
 ee popd
-ee 'cp build/lib/lib* build/bin'
 ee 'tar -czf build.tar.gz build/bin/*'
 
 echo "Done! - ${0##*/}"
