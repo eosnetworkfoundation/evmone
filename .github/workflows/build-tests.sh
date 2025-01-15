@@ -21,6 +21,7 @@ ee make -j "$(nproc)"
 
 # pack
 ee popd
+ee 'cp build/lib/lib* build/bin'
 ee 'tar -czf build.tar.gz build/bin/evm*'
 
 echo "Done! - ${0##*/}"
