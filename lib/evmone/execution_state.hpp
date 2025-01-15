@@ -156,7 +156,7 @@ struct gas_parameters {
         out.G_codedeposit  = static_cast<uint64_t>((num*g.G_codedeposit)/den);
         out.G_sset         = static_cast<uint64_t>((num*g.G_sset)/den);
         return out;
-    };
+    }
 
     const storage_cost_t& get_storage_cost(uint64_t version) {
         if(!storage_cost.has_value()) {

@@ -421,15 +421,15 @@ TEST_P(evm, storage_gas_refund_eos_evm)
     // |            |         |        |        |       |        |  150000 |
     // |          3 |    -    |       0|       0|      0|       0|  149997 | push8 0x00
     // |          3 |    -    |       0|       0|      0|       0|  149994 | push1 0xda
-    // |       2900 |    -    |    2800|       0|      0|   17100|  147094 | sstore
+    // |       2900 |    -    |    2800|       0|      0|   20000|  147094 | sstore
     // |          3 |    -    |       0|       0|      0|       0|  147091 | push8 0x00
     // |          3 |    -    |       0|       0|      0|       0|  147088 | push1 0xdb
-    // |       2900 |    -    |    2800|       0|      0|   17100|  144188 | sstore
+    // |       2900 |    -    |    2800|       0|      0|   20000|  144188 | sstore
     // |          3 |    -    |       0|       0|      0|       0|  144185 | push8 0x00
     // |          3 |    -    |       0|       0|      0|       0|  144182 | push1 0xdb
-    // |       2900 |    -    |    2800|       0|      0|   17100|  141282 | sstore
+    // |       2900 |    -    |    2800|       0|      0|   20000|  141282 | sstore
     // ---------------------------------------------------------------------------------END
-    //                             8400|               0|   51300|  141282 |
+    //                             8400|               0|   60000|  141282 |
 
     execute(150000, code);
     const auto gas_left_ = 141282;
@@ -439,7 +439,7 @@ TEST_P(evm, storage_gas_refund_eos_evm)
     EXPECT_EQ(result.gas_left, gas_left_);
     EXPECT_EQ(result.gas_refund, 0);
     EXPECT_EQ(result.storage_gas_consumed, 0);
-    EXPECT_EQ(result.storage_gas_refund, 51300);
+    EXPECT_EQ(result.storage_gas_refund, 60000);
     EXPECT_EQ(result.speculative_cpu_gas_consumed, 8400);
 
     const auto real_cpu_consumed = (gas_used_ - result.storage_gas_consumed) - result.speculative_cpu_gas_consumed;
@@ -474,24 +474,24 @@ TEST_P(evm, speculative_cpu_gas_consumed_eos_evm)
     // |            |         |        |        |       |        |  150000 |
     // |          3 |    -    |       0|       0|      0|       0|  149997 | push8 0xff
     // |          3 |    -    |       0|       0|      0|       0|  149994 | push1 0xda
-    // |      20000 |    -    |    2800|       0|  17100|       0|  129994 | sstore
-    // |          3 |    -    |       0|       0|      0|       0|  129991 | push8 0xff
-    // |          3 |    -    |       0|       0|      0|       0|  129988 | push1 0xdb
-    // |      20000 |    -    |    2800|       0|  17100|       0|  109988 | sstore
-    // |          3 |    -    |       0|       0|      0|       0|  109985 | push8 0xff
-    // |          3 |    -    |       0|       0|      0|       0|  109982 | push1 0xdb
-    // |      20000 |    -    |    2800|       0|  17100|       0|   89982 | sstore
+    // |      22900 |    -    |    2800|       0|  20000|       0|  127094 | sstore
+    // |          3 |    -    |       0|       0|      0|       0|  127091 | push8 0xff
+    // |          3 |    -    |       0|       0|      0|       0|  127088 | push1 0xdb
+    // |      22900 |    -    |    2800|       0|  20000|       0|  104188 | sstore
+    // |          3 |    -    |       0|       0|      0|       0|  104185 | push8 0xff
+    // |          3 |    -    |       0|       0|      0|       0|  104182 | push1 0xdb
+    // |      22900 |    -    |    2800|       0|  20000|       0|   81282 | sstore
     // ---------------------------------------------------------------------------------END
-    //                             8400|           51300|            89982 |
+    //                             8400|           60000|            81282 |
     execute(150000, code);
 
-    const auto gas_left_ = 89982;
+    const auto gas_left_ = 81282;
     const auto gas_used_ = 150000 - gas_left_;
 
     EXPECT_GAS_USED(EVMC_SUCCESS, gas_used_);
     EXPECT_EQ(result.gas_left, gas_left_);
     EXPECT_EQ(result.gas_refund, 0);
-    EXPECT_EQ(result.storage_gas_consumed, 51300);
+    EXPECT_EQ(result.storage_gas_consumed, 60000);
     EXPECT_EQ(result.storage_gas_refund, 0);
     EXPECT_EQ(result.speculative_cpu_gas_consumed, 8400);
 
