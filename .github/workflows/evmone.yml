@@ -39,7 +39,7 @@ jobs:
         with:
           platform-file: .cicd/platforms.json
           password: ${{secrets.GITHUB_TOKEN}}
-          package-name: builders
+          package-name: builders-evmone
 
   build-platforms:
     name: Build Platforms
