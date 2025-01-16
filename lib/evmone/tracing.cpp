@@ -111,7 +111,18 @@ class InstructionTracer : public Tracer
         m_out << R"("pc":)" << std::dec << pc;
         m_out << R"(,"op":)" << std::dec << int{opcode};
         m_out << R"(,"gas":"0x)" << std::hex << gas << '"';
-        m_out << R"(,"gasCost":"0x)" << std::hex << instr::gas_costs[state.rev][opcode] << '"';
+
+        if(opcode == OP_CREATE) {
+            int64_t gas_cost = 32000;
+            if(state.eos_evm_version >= 3) {
+                gas_cost = state.gas_state.calc_apply_storage_gas_delta(static_cast<int64_t>(state.gas_params.G_txcreate));
+            } else if (state.eos_evm_version >= 1) {
+                gas_cost = static_cast<int64_t>(state.gas_params.G_txcreate);
+            }
+            m_out << R"(,"gasCost":"0x)" << std::hex << gas_cost << '"';
+        } else {
+            m_out << R"(,"gasCost":"0x)" << std::hex << instr::gas_costs[state.rev][opcode] << '"';
+        }
 
         // Full memory can be dumped as evmc::hex({state.memory.data(), state.memory.size()}),
         // but this should not be done by default. Adding --tracing=+memory option would be nice.

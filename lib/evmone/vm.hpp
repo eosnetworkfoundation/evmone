@@ -24,13 +24,10 @@ public:
     bool validate_eof = false;
 
 private:
-    std::vector<ExecutionState> m_execution_states;
     std::unique_ptr<Tracer> m_first_tracer;
 
 public:
     VM() noexcept;
-
-    [[nodiscard]] ExecutionState& get_execution_state(size_t depth) noexcept;
 
     void add_tracer(std::unique_ptr<Tracer> tracer) noexcept
     {

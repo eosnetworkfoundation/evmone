@@ -90,7 +90,7 @@ TEST(execution_state, reset_advanced)
 
     EXPECT_EQ(st.gas_left, 1);
     EXPECT_EQ(st.gas_state.cpu_gas_refund(), 2);
-    EXPECT_EQ(st.stack.size(), 1);
+    EXPECT_EQ(st.stack_size(), 1);
     EXPECT_EQ(st.memory.size(), 64);
     EXPECT_EQ(st.msg, &msg);
     EXPECT_EQ(st.rev, EVMC_BYZANTIUM);
@@ -113,7 +113,7 @@ TEST(execution_state, reset_advanced)
         //       test.
         EXPECT_EQ(st.gas_left, 13);
         EXPECT_EQ(st.gas_state.cpu_gas_refund(), 0);
-        EXPECT_EQ(st.stack.size(), 0);
+        EXPECT_EQ(st.stack_size(), 0);
         EXPECT_EQ(st.memory.size(), 0);
         EXPECT_EQ(st.msg, &msg2);
         EXPECT_EQ(st.rev, EVMC_HOMESTEAD);

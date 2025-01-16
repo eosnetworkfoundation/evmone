@@ -93,7 +93,7 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
         msg.input_size = input_size;
     }
 
-    int64_t cost = has_value ? CALL_VALUE_COST : 0;
+    int64_t cost = has_value ? 2300 : 0;
 
     if(has_value) {
         if(state.eos_evm_version >= 3) {
@@ -221,7 +221,7 @@ Result extcall_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noe
         msg.input_size = input_size;
     }
 
-    auto cost = has_value ? CALL_VALUE_COST : 0;
+    int64_t cost = has_value ? 2300 : 0;
 
     if(has_value) {
         if(state.eos_evm_version >= 3) {

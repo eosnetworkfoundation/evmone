@@ -63,9 +63,11 @@ inline evmc::Result baseline_execute(evmc::VM& c_vm, [[maybe_unused]] ExecutionS
     const baseline::CodeAnalysis& analysis, const evmc_message& msg, evmc_revision rev,
     evmc::Host& host, [[maybe_unused]] bytes_view code)
 {
+    (void)rev;
+    (void)host;
     auto& vm = *static_cast<evmone::VM*>(c_vm.get_raw_pointer());
-    return evmc::Result{
-        baseline::execute(vm, host.get_interface(), host.to_context(), rev, msg, analysis)};
+        return evmc::Result{
+        baseline::execute(vm, msg, analysis, exec_state)};
 }
 
 inline evmc::Result evmc_execute(evmc::VM& vm, FakeExecutionState& /*exec_state*/,

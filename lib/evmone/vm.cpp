@@ -45,7 +45,9 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
         c_vm->execute = evmone::advanced::execute;
         return EVMC_SET_OPTION_SUCCESS;
     }
-    else if (name == "cgoto")
+    else
+#endif
+    if (name == "cgoto")
     {
 #if EVMONE_CGOTO_SUPPORTED
         if (value == "no")
@@ -61,14 +63,14 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
     else if (name == "trace")
     {
         #if not defined(ANTELOPE)
-        vm.add_tracer(create_instruction_tracer(std::cerr));
+        vm.add_tracer(create_instruction_tracer(std::clog));
         return EVMC_SET_OPTION_SUCCESS;
         #endif
     }
     else if (name == "histogram")
     {
         #if not defined(ANTELOPE)
-        vm.add_tracer(create_histogram_tracer(std::cerr));
+        vm.add_tracer(create_histogram_tracer(std::clog));
         return EVMC_SET_OPTION_SUCCESS;
         #endif
     }
@@ -88,20 +90,7 @@ VM::VM() noexcept
         evmone::get_capabilities,
         evmone::set_option,
     }
-{
-    m_execution_states.reserve(1025);
-}
-
-ExecutionState& VM::get_execution_state(size_t depth) noexcept
-{
-    // Vector already has the capacity for all possible depths,
-    // so reallocation never happens (therefore: noexcept).
-    // The ExecutionStates are lazily created because they pre-allocate EVM memory and stack.
-    assert(depth < m_execution_states.capacity());
-    if (m_execution_states.size() <= depth)
-        m_execution_states.resize(depth + 1);
-    return m_execution_states[depth];
-}
+{}
 
 }  // namespace evmone
 

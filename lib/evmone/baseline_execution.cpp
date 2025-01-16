@@ -287,14 +287,10 @@ TARGET_OP_UNDEFINED:
 #endif
 }  // namespace
 
-evmc_result execute(VM& vm, const evmc_host_interface& host, evmc_host_context* ctx,
-    evmc_revision rev, const evmc_message& msg, const CodeAnalysis& analysis) noexcept
+evmc_result execute(VM& vm, const evmc_message& msg, const CodeAnalysis& analysis, ExecutionState& state) noexcept
 {
     const auto code = analysis.executable_code();
     auto gas = msg.gas;
-
-    auto& state = vm.get_execution_state(static_cast<size_t>(msg.depth));
-    state.reset(msg, rev, host, ctx, analysis.raw_code());
 
     state.analysis.baseline = &analysis;  // Assign code analysis for instruction implementations.
 
@@ -318,7 +314,6 @@ evmc_result execute(VM& vm, const evmc_host_interface& host, evmc_host_context* 
 
     auto gas_left = (state.status == EVMC_SUCCESS || state.status == EVMC_REVERT) ? gas : 0;
     const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_state.cpu_gas_refund() : 0;
-
     int64_t storage_gas_consumed = 0;
     int64_t storage_gas_refund = 0;
     int64_t speculative_cpu_gas_consumed = 0;
@@ -363,10 +358,11 @@ evmc_result execute(evmc_vm* c_vm, const evmc_host_interface* host, evmc_host_co
         const auto container_kind =
             (msg->kind == EVMC_EOFCREATE ? ContainerKind::initcode : ContainerKind::runtime);
         if (validate_eof(rev, container_kind, container) != EOFValidationError::success)
-            return evmc_make_result(EVMC_CONTRACT_VALIDATION_FAILURE, 0, 0, nullptr, 0);
+            return evmc_make_result(EVMC_CONTRACT_VALIDATION_FAILURE, 0, 0, 0, 0, 0, nullptr, 0);
     }
 
     const auto code_analysis = analyze(container, eof_enabled);
-    return execute(*vm, *host, ctx, rev, *msg, code_analysis);
+    auto state = std::make_unique<ExecutionState>(*msg, rev, *host, ctx, container);
+    return execute(*vm, *msg, code_analysis, *state);
 }
 }  // namespace evmone::baseline

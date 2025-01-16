@@ -8,9 +8,15 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "instructions_traits.hpp"
 
 namespace evmone
 {
+struct StorageStoreCost
+{
+    int64_t gas_cost;
+    int64_t gas_refund;
+};
 namespace advanced
 {
 struct AdvancedCodeAnalysis;
@@ -147,7 +153,7 @@ public:
 
 struct gas_parameters {
 
-    using storage_cost_t = std::array<StorageStoreCost, EVMC_STORAGE_MODIFIED_RESTORED + 1>;
+    using storage_cost_t = std::array<evmone::StorageStoreCost, EVMC_STORAGE_MODIFIED_RESTORED + 1>;
 
     gas_parameters(){}
 
@@ -250,6 +256,11 @@ struct gas_state_t {
 
     int64_t storage_gas_refund()const {
         return storage_gas_refund_;
+    }
+
+    int64_t calc_apply_storage_gas_delta(int64_t storage_gas_delta) const {
+        const int64_t d = storage_gas_delta - storage_gas_refund_;
+        return std::max(d, decltype(d){0});
     }
 
     int64_t apply_storage_gas_delta(int64_t storage_gas_delta){
