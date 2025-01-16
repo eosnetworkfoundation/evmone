@@ -122,7 +122,7 @@ jobs:
           apt upgrade -y
 
       - name: Download EOS EVM evmone builddir
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: build.tar.gz
 
