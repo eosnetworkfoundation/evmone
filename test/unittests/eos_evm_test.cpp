@@ -732,3 +732,25 @@ TEST_P(evm, call_gas_state_integration_revert_eos_evm)
     const auto real_cpu_consumed = (gas_used_ - result.storage_gas_consumed) - result.speculative_cpu_gas_consumed;
     EXPECT_EQ(real_cpu_consumed, 3*7 + 100 + 2500 + (2310 - 1000) );
 }
+
+TEST_P(evm, eos_evm_test_apply_discount_factor)
+{
+    evmone::gas_parameters non_scaled {
+        1000,  //G_txnewaccount
+        2000,  //G_newaccount
+        3000,  //G_txcreate
+        4000,  //G_codedeposit
+        5000   //G_sset
+    };
+
+    intx::uint256 factor_num{1};
+    intx::uint256 factor_den{2};
+
+    auto scaled = gas_parameters::apply_discount_factor(factor_num, factor_den, non_scaled);
+
+    EXPECT_EQ(scaled.G_txnewaccount,  500);
+    EXPECT_EQ(scaled.G_newaccount  , 1000);
+    EXPECT_EQ(scaled.G_txcreate    , 1500);
+    EXPECT_EQ(scaled.G_codedeposit , 2000);
+    EXPECT_EQ(scaled.G_sset        , 2500);
+}

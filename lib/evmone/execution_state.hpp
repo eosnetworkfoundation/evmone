@@ -145,16 +145,13 @@ struct gas_parameters {
     uint64_t G_codedeposit = 200;
     uint64_t G_sset = 20000;
 
-    static gas_parameters apply_discount_factor(const intx::uint256& inclusion_price, const uint64_t base_fee_per_gas, const uint64_t storage_price, const evmone::gas_parameters& g) {
-        //storage_gas_discount_factor = (storage_price)/(base_price + inclusion_price)
-        const intx::uint256 num(storage_price);
-        const intx::uint256 den(intx::uint256(base_fee_per_gas) + intx::uint256(inclusion_price));
+    static gas_parameters apply_discount_factor(const intx::uint256& factor_num, const intx::uint256& factor_den, const evmone::gas_parameters& g) {
         gas_parameters out;
-        out.G_txnewaccount = static_cast<uint64_t>((num*g.G_txnewaccount)/den);
-        out.G_newaccount   = static_cast<uint64_t>((num*g.G_newaccount)/den);
-        out.G_txcreate     = static_cast<uint64_t>((num*g.G_txcreate)/den);
-        out.G_codedeposit  = static_cast<uint64_t>((num*g.G_codedeposit)/den);
-        out.G_sset         = static_cast<uint64_t>((num*g.G_sset)/den);
+        out.G_txnewaccount = static_cast<uint64_t>((factor_num*g.G_txnewaccount)/factor_den);
+        out.G_newaccount   = static_cast<uint64_t>((factor_num*g.G_newaccount)/factor_den);
+        out.G_txcreate     = static_cast<uint64_t>((factor_num*g.G_txcreate)/factor_den);
+        out.G_codedeposit  = static_cast<uint64_t>((factor_num*g.G_codedeposit)/factor_den);
+        out.G_sset         = static_cast<uint64_t>((factor_num*g.G_sset)/factor_den);
         return out;
     }
 
@@ -236,8 +233,8 @@ struct gas_state_t {
     int64_t apply_storage_gas_delta(int64_t storage_gas_delta){
         if (eos_evm_version_ >= 3) {
             int64_t d = storage_gas_delta - storage_gas_refund_;
-            storage_gas_refund_ = std::max(-d, decltype(d){0});
-            const auto gas_consumed = std::max(d, decltype(d){0});
+            storage_gas_refund_ = std::max(-d, int64_t{0});
+            const auto gas_consumed = std::max(d, int64_t{0});
             storage_gas_consumed_ += gas_consumed;
             return gas_consumed;
         }
@@ -247,8 +244,8 @@ struct gas_state_t {
     int64_t apply_speculative_cpu_gas_delta(int64_t cpu_gas_delta) {
         if (eos_evm_version_ >= 3) {
             int64_t d = cpu_gas_delta - cpu_gas_refund_;
-            cpu_gas_refund_ = std::max(-d, decltype(d){0});
-            const auto gas_consumed = std::max(d, decltype(d){0});
+            cpu_gas_refund_ = std::max(-d, int64_t{0});
+            const auto gas_consumed = std::max(d, int64_t{0});
             speculative_cpu_gas_consumed_ += gas_consumed;
             return gas_consumed;
         }
