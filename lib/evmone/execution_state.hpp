@@ -272,13 +272,13 @@ struct gas_state_t {
     int64_t collapse() {
         const auto s =  std::min(storage_gas_consumed_, storage_gas_refund_);
         const auto x = storage_gas_consumed_ - storage_gas_refund_;
-        storage_gas_consumed_ = std::max(x, decltype(x){0});
-        storage_gas_refund_ = std::max(-x, decltype(x){0});
+        storage_gas_consumed_ = std::max(x, int64_t{0});
+        storage_gas_refund_ = std::max(-x, int64_t{0});
 
         const auto c = std::min(speculative_cpu_gas_consumed_, cpu_gas_refund_);
         const auto y = speculative_cpu_gas_consumed_ - cpu_gas_refund_;
-        speculative_cpu_gas_consumed_ = std::max(y, decltype(y){0});
-        cpu_gas_refund_ = std::max(-y, decltype(y){0});
+        speculative_cpu_gas_consumed_ = std::max(y, int64_t{0});
+        cpu_gas_refund_ = std::max(-y, int64_t{0});
 
         return s + c;
     }
