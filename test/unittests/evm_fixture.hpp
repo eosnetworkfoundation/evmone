@@ -3,16 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "evmone/eof.hpp"
 #include <evmc/mocked_host.hpp>
 #include <gtest/gtest.h>
 #include <intx/intx.hpp>
 #include <test/utils/bytecode.hpp>
-
 #include <evmone/vm.hpp>
+#include <evmone/execution_state.hpp>
 #include <evmone/baseline.hpp>
 #include <evmone/advanced_execution.hpp>
 #include <evmone/advanced_analysis.hpp>
-#include <evmone/execution_state.hpp>
 
 #define EXPECT_STATUS(STATUS_CODE)                                           \
     EXPECT_EQ(result.status_code, STATUS_CODE);                              \
@@ -106,6 +106,7 @@ protected:
     /// The `gas_used` field  will be updated accordingly.
     void execute(int64_t gas, const bytecode& code, bytes_view input = {}) noexcept
     {
+        result = evmc::Result{};
         host.eos_evm_version = eos_evm_version;
 
         msg.input_data = input.data();
@@ -118,30 +119,62 @@ protected:
             host.access_account(msg.recipient);
         }
 
+        if (rev >= EVMC_PRAGUE && is_eof_container(code))
+        {
+            ASSERT_EQ(get_error_message(validate_eof(rev, ContainerKind::runtime, code)),
+                get_error_message(EOFValidationError::success));
+        }
+
+
         if(!is_advanced()) {
-            evmone::ExecutionState state;
-            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
-            auto& evm_ = *static_cast<evmone::VM*>(vm.get_raw_pointer());
-            auto analysis = evmone::baseline::analyze(rev, code);
-            result = evmc::Result{evmone::baseline::execute(evm_, gas, state, analysis)};
+
+            auto& evm_ = *static_cast<VM*>(vm.get_raw_pointer());
+            const bytes_view container = code;
+            const auto eof_enabled = rev >= instr::REV_EOF1;
+
+            // Since EOF validation recurses into subcontainers, it only makes sense to do for top level
+            // message calls. The condition for `msg->kind` inside differentiates between creation tx code
+            // (initcode) and already deployed code (runtime).
+            if (evm_.validate_eof && eof_enabled && is_eof_container(container) && msg.depth == 0)
+            {
+                const auto container_kind =
+                    (msg.kind == EVMC_EOFCREATE ? ContainerKind::initcode : ContainerKind::runtime);
+                if (validate_eof(rev, container_kind, container) != EOFValidationError::success)
+                    result = evmc::Result{evmc_make_result(EVMC_CONTRACT_VALIDATION_FAILURE, 0, 0, 0, 0, 0, nullptr, 0)};
+            }
+            if( result.status_code != EVMC_CONTRACT_VALIDATION_FAILURE ) {
+                const auto code_analysis = evmone::baseline::analyze(container, eof_enabled);
+                evmone::ExecutionState state;
+                state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
+                result = evmc::Result{evmone::baseline::execute(evm_, msg, code_analysis, state)};
+            }
         } else {
-            evmone::advanced::AdvancedExecutionState state;
-            state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
             evmone::advanced::AdvancedCodeAnalysis analysis;
-            const bytes_view container = {code.data(), code.size()};
-            if (is_eof_container(container)) {
-                if (rev >= EVMC_CANCUN) {
+            const bytes_view container = code;
+            if (is_eof_container(container))
+            {
+                if (rev >= EVMC_PRAGUE)
+                {
                     const auto eof1_header = read_valid_eof1_header(container);
                     analysis = evmone::advanced::analyze(rev, eof1_header.get_code(container, 0));
-                } else {
-                    result = evmc::Result{evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, 0, 0, 0, nullptr, 0)};
-                    return;
                 }
-            } else {
+                else{
+                    // Skip analysis, because it will recognize 01 section id as OP_ADD and return
+                    // EVMC_STACKUNDERFLOW.
+                    result = evmc::Result{evmc::make_result(EVMC_UNDEFINED_INSTRUCTION, 0, 0, 0l, 0l, 0l, nullptr, 0)};
+                }
+            }
+            else {
                 analysis = evmone::advanced::analyze(rev, container);
             }
-            result = evmc::Result{evmone::advanced::execute(state, analysis)};
+
+            if( result.status_code != EVMC_UNDEFINED_INSTRUCTION ) {
+                evmone::advanced::AdvancedExecutionState state;
+                state.reset(msg, rev, evmc::MockedHost::get_interface(), host.to_context(), code, gas_params, eos_evm_version);
+                result = evmc::Result{evmone::advanced::execute(state, analysis)};
+            }
         }
+
         output = {result.output_data, result.output_size};
         gas_used = msg.gas - result.gas_left;
     }

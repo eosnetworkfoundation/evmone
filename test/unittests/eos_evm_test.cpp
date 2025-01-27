@@ -12,6 +12,7 @@
 using namespace evmc::literals;
 using evmone::test::evm;
 using namespace evmone;
+using namespace evmone::test;
 
 evmc_revision evm_version_to_revision[] = {
     EVMC_ISTANBUL,  // eos_evm_version=0

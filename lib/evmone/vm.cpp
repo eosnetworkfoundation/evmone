@@ -45,7 +45,7 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
         c_vm->execute = evmone::advanced::execute;
         return EVMC_SET_OPTION_SUCCESS;
     }
-    else 
+    else
 #endif
     if (name == "cgoto")
     {
@@ -63,14 +63,14 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
     else if (name == "trace")
     {
         #if not defined(ANTELOPE)
-        vm.add_tracer(create_instruction_tracer(std::cerr));
+        vm.add_tracer(create_instruction_tracer(std::clog));
         return EVMC_SET_OPTION_SUCCESS;
         #endif
     }
     else if (name == "histogram")
     {
         #if not defined(ANTELOPE)
-        vm.add_tracer(create_histogram_tracer(std::cerr));
+        vm.add_tracer(create_histogram_tracer(std::clog));
         return EVMC_SET_OPTION_SUCCESS;
         #endif
     }
@@ -80,7 +80,7 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
 }  // namespace
 
 
-inline constexpr VM::VM() noexcept
+VM::VM() noexcept
   : evmc_vm{
         EVMC_ABI_VERSION,
         "evmone",
